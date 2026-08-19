@@ -53,9 +53,16 @@
           <input id="nota" placeholder="Ej: venta mesa 4, turno tarde">
         </label>
 
-        <input id="archivo" type="file" accept="image/*" capture="environment" multiple hidden>
+        <!-- Dos entradas distintas: con capture el teléfono abre la cámara
+             directamente y no deja llegar a la galería; sin capture, sí. -->
+        <input id="archivo-camara" type="file" accept="image/*" capture="environment" hidden>
+        <input id="archivo-galeria" type="file" accept="image/*" multiple hidden>
+
         <button id="btn-foto" class="principal grande">📷 Tomar foto de los billetes</button>
-        <p class="tenue pequeno">Puedes fotografiar varios billetes juntos: se registra cada uno por separado.</p>
+        <button id="btn-galeria" class="secundario grande ancho">🖼️ Elegir fotos guardadas</button>
+
+        <p class="tenue pequeno">Puedes fotografiar varios billetes juntos: se registra cada uno por separado.
+          Desde la galería puedes elegir varias fotos de una vez, o arrastrarlas aquí si estás en la computadora.</p>
       </div>
 
       <div id="cola" class="tarjeta oculto">

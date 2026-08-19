@@ -13,7 +13,7 @@ Funciona en teléfono y en computadora: es una página web que se instala como a
 
 | | |
 |---|---|
-| **Registrar** | Se elige la cajera, se toma la foto, se sube. Claude lee cada billete de la foto (pueden ir varios juntos) y extrae serial, denominación y año de serie. |
+| **Registrar** | Se elige la cajera y se sube la foto: tomándola con la cámara, eligiendo varias de la galería, o arrastrándolas desde la computadora. Claude lee cada billete (pueden ir varios en una misma foto) y extrae serial, denominación y año de serie. |
 | **Buscar** | Se escribe el serial completo o un pedazo (los últimos 4 dígitos, por ejemplo) y aparece la cajera, la fecha, la foto original y la nota. |
 | **Historial** | Todas las fotos subidas, con quién las subió y cuánto sumaban. |
 | **Reportes** | Total por cajera, por día y por denominación. Descarga a Excel (CSV). Muestra el gasto real de la API. |

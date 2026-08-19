@@ -5,7 +5,12 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const dinero = (n) => '$' + Number(n || 0).toLocaleString('es-VE');
-const fecha = (s) => (s ? new Date(s.replace(' ', 'T') + 'Z').toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' }) : '');
+// Postgres entrega las fechas ya en ISO 8601 con zona horaria.
+const fecha = (s) => {
+  if (!s) return '';
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' });
+};
 
 let temporizadorAviso;
 function avisar(texto, ms = 3000) {
@@ -45,7 +50,10 @@ function encoger(archivo, maxLado = 1800, calidad = 0.85) {
       lienzo.toBlob((b) => (b ? resolve(b) : reject(new Error('No se pudo procesar la imagen.'))), 'image/jpeg', calidad);
       URL.revokeObjectURL(img.src);
     };
-    img.onerror = () => reject(new Error('No se pudo leer la imagen.'));
+    img.onerror = () => {
+      URL.revokeObjectURL(img.src);
+      reject(new Error('Este navegador no pudo abrir esa imagen. Si viene de un iPhone en formato HEIC, compártela o guárdala como JPG.'));
+    };
     img.src = URL.createObjectURL(archivo);
   });
 }
@@ -119,13 +127,20 @@ async function subirFoto({ grande, mini }, cajeraId, nota) {
   return datos.captura;
 }
 
-async function manejarArchivos(archivos) {
+async function manejarArchivos(seleccionados) {
+  const archivos = [...seleccionados].filter((a) => a.type.startsWith('image/'));
+  if (archivos.length === 0) return avisar('Elige imágenes: eso no parece una foto.');
+  if (archivos.length < seleccionados.length) {
+    avisar(`Se ignoraron ${seleccionados.length - archivos.length} archivo(s) que no eran imágenes.`);
+  }
+
   const cajeraId = $('#sel-cajera').value;
   const cajeraNombre = $('#sel-cajera').selectedOptions[0]?.textContent || '';
   const nota = $('#nota').value;
   if (!cajeraId) return avisar('Primero elige la cajera.');
 
-  $('#btn-foto').disabled = true;
+  const botones = [$('#btn-foto'), $('#btn-galeria')];
+  botones.forEach((b) => (b.disabled = true));
   for (const archivo of archivos) {
     const marcador = pintarCargando(cajeraNombre);
     try {
@@ -152,9 +167,11 @@ async function manejarArchivos(archivos) {
       marcador.innerHTML = `<p class="error">${esc(err.message)}</p>`;
     }
   }
-  $('#btn-foto').disabled = false;
+  botones.forEach((b) => (b.disabled = false));
   $('#nota').value = '';
-  $('#archivo').value = '';
+  // Se limpian los inputs para que elegir la misma foto otra vez vuelva a disparar el evento.
+  $('#archivo-camara').value = '';
+  $('#archivo-galeria').value = '';
 }
 
 function pintarCargando(cajeraNombre) {
@@ -423,8 +440,23 @@ $('#form-entrar').addEventListener('submit', async (e) => {
 $('#btn-salir').addEventListener('click', async () => { await api('/api/salir', { method: 'POST' }); location.reload(); });
 $('#pestanas').addEventListener('click', (e) => { if (e.target.dataset.vista) mostrarVista(e.target.dataset.vista); });
 
-$('#btn-foto').addEventListener('click', () => $('#archivo').click());
-$('#archivo').addEventListener('change', (e) => manejarArchivos([...e.target.files]));
+$('#btn-foto').addEventListener('click', () => $('#archivo-camara').click());
+$('#btn-galeria').addEventListener('click', () => $('#archivo-galeria').click());
+for (const id of ['#archivo-camara', '#archivo-galeria']) {
+  $(id).addEventListener('change', (e) => manejarArchivos(e.target.files));
+}
+
+// Arrastrar fotos sobre la tarjeta (útil al trabajar desde la computadora).
+const zona = $('#btn-foto').closest('.tarjeta');
+for (const evento of ['dragenter', 'dragover']) {
+  zona.addEventListener(evento, (e) => { e.preventDefault(); zona.classList.add('soltando'); });
+}
+for (const evento of ['dragleave', 'drop']) {
+  zona.addEventListener(evento, (e) => { e.preventDefault(); zona.classList.remove('soltando'); });
+}
+zona.addEventListener('drop', (e) => {
+  if (e.dataTransfer?.files?.length) manejarArchivos(e.dataTransfer.files);
+});
 $('#btn-reintentar').addEventListener('click', () => vaciarCola());
 
 $('#btn-buscar').addEventListener('click', buscar);
