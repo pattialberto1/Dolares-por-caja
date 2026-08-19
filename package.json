@@ -1,0 +1,24 @@
+{
+  "name": "dolares-por-caja",
+  "version": "1.0.0",
+  "description": "Registro y búsqueda de los dólares recibidos en el local, por cajera.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "prueba": "node pruebas/humo.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
+    "better-sqlite3": "^13.0.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "multer": "^2.2.0",
+    "sharp": "^0.35.3",
+    "zod": "^4.4.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

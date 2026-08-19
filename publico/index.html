@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14532d">
+<title>Dólares por caja</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icono-192.png">
+<link rel="apple-touch-icon" href="/icono-192.png">
+<link rel="stylesheet" href="/estilos.css">
+</head>
+<body>
+
+<!-- ENTRAR -->
+<section id="pantalla-entrar" class="entrar oculto">
+  <form id="form-entrar" class="tarjeta">
+    <h1>Dólares por caja</h1>
+    <p class="tenue">Registro de billetes recibidos en el local.</p>
+    <label>Usuario<input name="nombre" autocomplete="username" required></label>
+    <label>PIN<input name="pin" type="password" inputmode="numeric" autocomplete="current-password" required></label>
+    <button class="principal">Entrar</button>
+    <p id="error-entrar" class="error"></p>
+  </form>
+</section>
+
+<!-- APLICACIÓN -->
+<div id="app" class="oculto">
+  <header>
+    <strong>Dólares por caja</strong>
+    <span class="crece"></span>
+    <span id="estado-red" class="chip" hidden></span>
+    <span id="quien" class="tenue"></span>
+    <button id="btn-salir" class="enlace">Salir</button>
+  </header>
+
+  <nav id="pestanas">
+    <button data-vista="registrar" class="activa">Registrar</button>
+    <button data-vista="buscar">Buscar</button>
+    <button data-vista="historial">Historial</button>
+    <button data-vista="reportes">Reportes</button>
+    <button data-vista="ajustes" class="solo-admin">Ajustes</button>
+  </nav>
+
+  <main>
+    <!-- REGISTRAR -->
+    <section id="vista-registrar" class="vista">
+      <div class="tarjeta">
+        <label>Cajera que recibió los dólares
+          <select id="sel-cajera"></select>
+        </label>
+        <label>Nota (opcional)
+          <input id="nota" placeholder="Ej: venta mesa 4, turno tarde">
+        </label>
+
+        <input id="archivo" type="file" accept="image/*" capture="environment" multiple hidden>
+        <button id="btn-foto" class="principal grande">📷 Tomar foto de los billetes</button>
+        <p class="tenue pequeno">Puedes fotografiar varios billetes juntos: se registra cada uno por separado.</p>
+      </div>
+
+      <div id="cola" class="tarjeta oculto">
+        <h3>Pendientes por enviar</h3>
+        <p class="tenue pequeno">Se guardaron en el teléfono y se enviarán solos cuando vuelva la conexión.</p>
+        <ul id="lista-cola" class="lista"></ul>
+        <button id="btn-reintentar" class="secundario">Enviar ahora</button>
+      </div>
+
+      <div id="resultados"></div>
+    </section>
+
+    <!-- BUSCAR -->
+    <section id="vista-buscar" class="vista oculto">
+      <div class="tarjeta">
+        <label>Serial del billete
+          <input id="q" placeholder="Ej: MB12345678A o solo 5678" autocapitalize="characters">
+        </label>
+        <button id="btn-buscar" class="principal grande">🔎 Buscar de quién es</button>
+        <p class="tenue pequeno">Sirve el serial completo o un pedazo (mínimo 3 caracteres).</p>
+      </div>
+      <div id="res-busqueda"></div>
+    </section>
+
+    <!-- HISTORIAL -->
+    <section id="vista-historial" class="vista oculto">
+      <div id="lista-historial"></div>
+    </section>
+
+    <!-- REPORTES -->
+    <section id="vista-reportes" class="vista oculto">
+      <div class="tarjeta">
+        <div class="fila">
+          <label>Desde<input id="desde" type="date"></label>
+          <label>Hasta<input id="hasta" type="date"></label>
+        </div>
+        <div class="fila">
+          <button id="btn-reporte" class="principal">Ver</button>
+          <button id="btn-csv" class="secundario">Descargar Excel (CSV)</button>
+        </div>
+      </div>
+      <div id="res-reporte"></div>
+      <div class="tarjeta">
+        <h3>Seriales repetidos</h3>
+        <p class="tenue pequeno">Un mismo serial registrado dos veces: o el billete volvió a entrar, o hay una copia. Vale la pena revisarlo.</p>
+        <div id="res-repetidos"></div>
+      </div>
+    </section>
+
+    <!-- AJUSTES -->
+    <section id="vista-ajustes" class="vista oculto">
+      <div class="tarjeta">
+        <h3>Cajeras</h3>
+        <div id="lista-cajeras" class="lista"></div>
+        <div class="fila">
+          <input id="nueva-cajera" placeholder="Nombre de la cajera">
+          <button id="btn-cajera" class="secundario">Añadir</button>
+        </div>
+      </div>
+      <div class="tarjeta">
+        <h3>Usuarios</h3>
+        <div id="lista-usuarios" class="lista"></div>
+        <div class="fila">
+          <input id="nuevo-usuario" placeholder="Usuario">
+          <input id="nuevo-pin" placeholder="PIN" inputmode="numeric">
+          <select id="nuevo-rol"><option value="operador">Operador</option><option value="admin">Admin</option></select>
+          <button id="btn-usuario" class="secundario">Crear</button>
+        </div>
+      </div>
+      <div class="tarjeta">
+        <h3>Cambiar mi PIN</h3>
+        <div class="fila">
+          <input id="mi-pin" placeholder="PIN nuevo" inputmode="numeric">
+          <button id="btn-mi-pin" class="secundario">Guardar</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="aviso" class="aviso oculto"></div>
+<script src="/app.js"></script>
+</body>
+</html>
