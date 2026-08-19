@@ -30,7 +30,7 @@ function cliente() {
 function explicar(error) {
   const m = String(error?.message || error || '');
   if (/bucket not found/i.test(m)) {
-    return `no existe un bucket llamado "${BUCKET}". Créalo en Supabase → Storage, o ajusta BUCKET_FOTOS.`;
+    return `Supabase no encuentra el bucket "${BUCKET}". O no existe con ese nombre exacto, o la clave no tiene permiso para verlo (pasa con la clave "anon").`;
   }
   if (/invalid.*(jwt|token)|jwt/i.test(m)) {
     return 'la clave no es válida — tiene que ser la "service_role", no la "anon".';
@@ -44,21 +44,61 @@ function explicar(error) {
   return m || 'error desconocido.';
 }
 
+/** Identificador del proyecto de Supabase, recortado para no publicarlo entero. */
+function proyectoAbreviado() {
+  const ref = String(process.env.SUPABASE_URL || '').match(/https?:\/\/([^.]+)\./)?.[1];
+  if (!ref) return null;
+  return ref.length > 8 ? `${ref.slice(0, 4)}…${ref.slice(-4)}` : ref;
+}
+
 /**
- * Comprueba que el bucket existe y es accesible. Devuelve una cadena con el
- * estado, para el diagnóstico de /api/salud.
+ * Comprueba el almacén listando los buckets del proyecto. Listar (en vez de
+ * preguntar por uno) distingue tres situaciones que Supabase confunde entre sí:
+ * el bucket no existe, se llama distinto, o la clave no puede verlo (con la
+ * clave "anon" las reglas de seguridad lo ocultan y responde "no encontrado").
+ *
+ * Devuelve { estado, detalle }. El detalle solo se enseña con sesión iniciada.
  */
 async function comprobar() {
-  if (SIMULAR) return 'simulado';
+  if (SIMULAR) return { estado: 'simulado' };
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return 'faltan SUPABASE_URL y/o SUPABASE_SERVICE_ROLE_KEY';
+    return { estado: 'faltan SUPABASE_URL y/o SUPABASE_SERVICE_ROLE_KEY' };
   }
+
   try {
-    const { data, error } = await cliente().storage.getBucket(BUCKET);
-    if (error) return explicar(error);
-    return data?.public ? `bucket "${BUCKET}" accesible, pero es PÚBLICO: hazlo privado` : 'conectado';
+    const { data, error } = await cliente().storage.listBuckets();
+    if (error) return { estado: explicar(error) };
+
+    const nombres = (data || []).map((b) => b.name);
+    const detalle = { esperado: BUCKET, buckets_visibles: nombres, proyecto: proyectoAbreviado() };
+    const encontrado = (data || []).find((b) => b.name === BUCKET);
+
+    if (encontrado) {
+      return encontrado.public
+        ? { estado: `el bucket "${BUCKET}" existe, pero es PÚBLICO: hazlo privado`, detalle }
+        : { estado: 'conectado', detalle };
+    }
+
+    // Ningún bucket a la vista: casi siempre es la clave, no el bucket.
+    if (nombres.length === 0) {
+      return {
+        estado: 'la clave no ve ningún bucket — suele ser la "anon" en vez de la "service_role", o un proyecto distinto',
+        detalle,
+      };
+    }
+
+    // Hay buckets, pero ninguno se llama así: es un problema de nombre.
+    // El estado no nombra los otros buckets: esos van en el detalle, que solo
+    // se enseña con sesión iniciada.
+    const parecido = nombres.find((n) => n.toLowerCase().trim() === BUCKET.toLowerCase().trim());
+    return {
+      estado: parecido
+        ? `hay un bucket con ese nombre pero escrito distinto, y los nombres distinguen mayúsculas y espacios (la app busca "${BUCKET}")`
+        : `este proyecto tiene otros buckets, pero ninguno se llama "${BUCKET}"`,
+      detalle,
+    };
   } catch (err) {
-    return explicar(err);
+    return { estado: explicar(err) };
   }
 }
 

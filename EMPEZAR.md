@@ -195,13 +195,18 @@ copiada o sin saldo en la cuenta.
 **La lectura tarda y se corta** — el límite de la función está en 60 segundos
 (`vercel.json`). Si tus fotos son muy grandes, baja `MAX_LADO_PX` a 1400.
 
-**Al subir una foto sale un error** — abre `/api/salud` y mira `almacen_fotos`.
-Te dice cuál de estas cuatro es:
+**Al subir una foto sale un error** — abre el diagnóstico **con la sesión
+iniciada**: así te lista los buckets que la clave encuentra de verdad, que es
+lo que distingue estas cuatro situaciones:
 
-- *no existe un bucket llamado "billetes"* → créalo en Supabase → Storage, con
-  ese nombre exacto y **privado**.
-- *la clave no es válida* → copiaste la `anon` en vez de la `service_role`.
-- *sin permiso sobre el bucket* → misma causa: falta la `service_role`.
+- *la clave no ve ningún bucket* → aunque lo hayas creado. Copiaste la clave
+  `anon` en vez de la `service_role`: con la `anon`, Supabase esconde los
+  buckets y parecen no existir.
+- *hay un bucket escrito distinto* → los nombres distinguen mayúsculas y
+  espacios. `Billetes` no es `billetes`.
+- *ninguno se llama así* → o lo creas con ese nombre, o pones el nombre real en
+  la variable `BUCKET_FOTOS`. Comprueba también que `SUPABASE_URL` sea el
+  proyecto donde lo creaste, y no otro.
 - *no se pudo alcanzar Supabase* → revisa `SUPABASE_URL`.
 
 Recuerda que después de tocar cualquier variable hay que **volver a desplegar**.

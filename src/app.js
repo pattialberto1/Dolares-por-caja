@@ -109,18 +109,25 @@ app.get('/api/salud', async (req, res) => {
     hora: new Date().toISOString(),
   };
 
-  const [base, almacen] = await Promise.all([
+  const [base, almacen, usuario] = await Promise.all([
     consultar('SELECT 1')
       .then(() => consultar('DELETE FROM sesiones WHERE expira_en < now()')) // limpieza barata, sin cron
       .then(() => 'conectada')
       .catch((err) => descripcionDeFallo(err) || `error: ${err.message}`),
     require('./almacen').comprobar(),
+    usuarioDeSesion(req.cookies?.sesion).catch(() => null),
   ]);
   estado.base_de_datos = base;
-  estado.almacen_fotos = almacen;
+  estado.almacen_fotos = almacen.estado;
+
+  // Los nombres de los buckets y el proyecto solo se enseñan con sesión: son
+  // pistas útiles para arreglar la configuración, no algo público.
+  if (usuario && almacen.detalle) estado.detalle_almacen = almacen.detalle;
+  estado.con_sesion = Boolean(usuario);
 
   const todoBien = base === 'conectada' &&
-    (almacen === 'conectado' || almacen === 'simulado') && estado.clave_claude === 'configurada';
+    (almacen.estado === 'conectado' || almacen.estado === 'simulado') &&
+    estado.clave_claude === 'configurada';
   res.status(todoBien ? 200 : 503).json({ ok: todoBien, ...estado });
 });
 

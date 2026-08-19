@@ -15,6 +15,7 @@
   .pieza .detalle { color: var(--tenue); font-size: .9rem; }
   .arreglo { margin-top: .5rem; padding: .6rem .8rem; border-radius: 8px; background: var(--ambar-claro); color: var(--ambar); font-size: .9rem; }
   .arreglo strong { display: block; margin-bottom: .2rem; }
+  code { background: var(--fondo); border: 1px solid var(--borde); border-radius: 4px; padding: 0 .3rem; font-size: .85em; }
   pre { background: var(--fondo); border: 1px solid var(--borde); border-radius: 8px; padding: .8rem; overflow-x: auto; font-size: .8rem; margin: 0; }
   details { margin-top: .5rem; }
   summary { cursor: pointer; color: var(--tenue); font-size: .9rem; }
@@ -72,8 +73,14 @@ const PIEZAS = [
     titulo: 'Almacén de fotos (Supabase Storage)',
     bien: (v) => v === 'conectado' || v === 'simulado',
     arreglo: (v) => {
-      if (/no existe un bucket/i.test(v))
-        return ['Falta crear el bucket', 'Supabase → Storage → New bucket. Nómbralo exactamente "billetes" y déjalo PRIVADO (Public bucket: NO).'];
+      if (/no ve ningún bucket/i.test(v))
+        return ['Casi seguro es la clave, no el bucket', 'Con la clave "anon" Supabase oculta los buckets y parece que no existieran. Ve a Supabase → Project Settings → API y copia la clave <strong>service_role</strong> (la secreta) en SUPABASE_SERVICE_ROLE_KEY. Si ya es esa, comprueba que SUPABASE_URL sea el mismo proyecto donde creaste el bucket.'];
+      if (/escrito distinto/i.test(v))
+        return ['El nombre no coincide', 'Los nombres distinguen mayúsculas y espacios. O renombras el bucket en Supabase, o pones ese nombre exacto en la variable BUCKET_FOTOS de Vercel.'];
+      if (/ninguno se llama/i.test(v))
+        return ['Ese bucket no está en este proyecto', 'O creas uno con el nombre exacto que busca la app, o pones en la variable BUCKET_FOTOS el nombre del que ya tienes. Comprueba también que SUPABASE_URL apunte al proyecto donde lo creaste.'];
+      if (/no encuentra el bucket/i.test(v))
+        return ['O no existe, o la clave no lo ve', 'Comprueba las dos cosas: que el bucket se llame exactamente igual, y que SUPABASE_SERVICE_ROLE_KEY sea la clave "service_role" y no la "anon".'];
       if (/service_role|no es válida|sin permiso/i.test(v))
         return ['La clave no es la correcta', 'Supabase → Project Settings → API. Copia la clave "service_role" (la secreta), no la "anon", en SUPABASE_SERVICE_ROLE_KEY.'];
       if (/faltan/i.test(v))
@@ -83,6 +90,19 @@ const PIEZAS = [
       if (/alcanzar Supabase/i.test(v))
         return ['SUPABASE_URL no es correcta', 'Supabase → Project Settings → API → Project URL (algo como https://xxxx.supabase.co).'];
       return ['Revisa la configuración de Storage', 'Bucket privado llamado "billetes", y la clave service_role en Vercel.'];
+    },
+    extra: (datos) => {
+      const d = datos.detalle_almacen;
+      if (!d) {
+        return datos.con_sesion ? '' :
+          '<p class="tenue pequeno" style="margin:.4rem 0 0">Inicia sesión en la app para ver aquí qué buckets encuentra la clave.</p>';
+      }
+      const lista = d.buckets_visibles.length
+        ? d.buckets_visibles.map((n) => `<code>${n}</code>`).join(', ')
+        : '<em>ninguno</em>';
+      return `<p class="tenue pequeno" style="margin:.4rem 0 0">
+        La app busca <code>${d.esperado}</code> · buckets que ve la clave: ${lista}
+        ${d.proyecto ? ` · proyecto <code>${d.proyecto}</code>` : ''}</p>`;
     },
   },
   {
@@ -149,6 +169,7 @@ async function comprobar() {
         <div>
           <h3>${p.titulo}</h3>
           <div class="detalle">${String(valor)}</div>
+          ${p.extra ? p.extra(datos) : ''}
           ${bien ? '' : `<div class="arreglo"><strong>${que}</strong>${como}</div>`}
         </div>
       </div>`;
