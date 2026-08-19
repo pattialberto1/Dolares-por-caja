@@ -18,6 +18,7 @@ Funciona en teléfono y en computadora: es una página web que se instala como a
 | **Historial** | Todas las fotos subidas, con quién las subió y cuánto sumaban. |
 | **Reportes** | Total por cajera, por día y por denominación. Descarga a Excel (CSV). Muestra el gasto real de la API. |
 | **Seriales repetidos** | Si un mismo serial aparece dos veces, la app lo señala. O el billete volvió a entrar, o hay una copia: vale la pena mirarlo. |
+| **Diagnóstico** | Una página (`/diagnostico.html`) que comprueba base de datos, almacén de fotos y clave de Claude, y dice qué arreglar y dónde cuando algo falla. |
 | **Sin señal** | Si no hay internet, la foto queda guardada en el teléfono y se envía sola cuando vuelve la conexión. |
 | **Corregir a mano** | Si Claude leyó mal un dígito, se corrige con el lápiz ✏️ y queda marcado como verificado. |
 

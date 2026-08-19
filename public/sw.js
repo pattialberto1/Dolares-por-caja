@@ -1,7 +1,7 @@
 // Cachea solo el armazón de la app: así abre al instante y funciona sin señal
 // para consultar la cola pendiente. Los datos siempre van a la red.
 const CACHE = 'dolares-v1';
-const ARMAZON = ['/', '/index.html', '/estilos.css', '/app.js', '/manifest.json'];
+const ARMAZON = ['/', '/index.html', '/estilos.css', '/app.js', '/manifest.json', '/diagnostico.html'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARMAZON)).then(() => self.skipWaiting()));

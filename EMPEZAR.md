@@ -163,15 +163,15 @@ El gasto real de Claude lo ves medido en la pestaña **Reportes**.
 
 ## Si algo falla
 
-**Lo primero, siempre:** abre `https://tu-app.vercel.app/api/salud`. Te dice en
-una línea qué pieza está fallando, sin exponer ninguna clave:
+**Lo primero, siempre:** abre `https://tu-app.vercel.app/diagnostico.html`
+(o dentro de la app: **Ajustes → Abrir diagnóstico**).
 
-```json
-{ "ok": false,
-  "base_de_datos": "la conexión expiró — suele pasar al usar el puerto 5432 en vez del 6543",
-  "almacen_fotos": "faltan variables",
-  "clave_claude": "configurada" }
-```
+Esa página comprueba las tres piezas —base de datos, fotos y clave de Claude—
+y, si algo falla, te dice en qué pantalla de Supabase o Vercel arreglarlo. No
+muestra ninguna clave: solo si cada pieza responde.
+
+Funciona incluso cuando la app está rota: si la propia API no contesta, la
+página te lo dice en vez de quedarse en blanco.
 
 **404: NOT_FOUND en la página principal** — Vercel está sirviendo la rama
 equivocada. Por defecto publica `main`, y el código está en

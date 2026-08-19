@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14653c">
+<title>Diagnóstico · Dólares por caja</title>
+<link rel="icon" href="/icono-192.png">
+<link rel="stylesheet" href="/estilos.css">
+<style>
+  .pieza { display: flex; gap: .8rem; align-items: flex-start; padding: .9rem 0; border-bottom: 1px solid var(--borde); }
+  .pieza:last-child { border-bottom: 0; }
+  .marca { font-size: 1.5rem; line-height: 1.2; flex: 0 0 auto; }
+  .pieza h3 { margin: 0 0 .15rem; font-size: 1rem; }
+  .pieza .detalle { color: var(--tenue); font-size: .9rem; }
+  .arreglo { margin-top: .5rem; padding: .6rem .8rem; border-radius: 8px; background: var(--ambar-claro); color: var(--ambar); font-size: .9rem; }
+  .arreglo strong { display: block; margin-bottom: .2rem; }
+  pre { background: var(--fondo); border: 1px solid var(--borde); border-radius: 8px; padding: .8rem; overflow-x: auto; font-size: .8rem; margin: 0; }
+  details { margin-top: .5rem; }
+  summary { cursor: pointer; color: var(--tenue); font-size: .9rem; }
+  .titular { font-size: 1.15rem; font-weight: 700; margin: 0 0 .3rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <strong>Diagnóstico</strong>
+  <span class="crece"></span>
+  <a href="/" style="color:#fff;font-size:.9rem">Volver a la app</a>
+</header>
+
+<main>
+  <div class="tarjeta" id="resumen">
+    <p class="cargando">Comprobando…</p>
+  </div>
+
+  <div class="tarjeta" id="piezas" hidden></div>
+
+  <div class="tarjeta">
+    <button id="reintentar" class="principal">Volver a comprobar</button>
+    <details>
+      <summary>Ver la respuesta completa</summary>
+      <pre id="crudo">—</pre>
+    </details>
+    <p class="tenue pequeno" style="margin-bottom:0">
+      Esta página no muestra ninguna clave: solo si cada pieza responde.
+    </p>
+  </div>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+
+// Cada pieza: cómo se llama, qué significa y qué hacer cuando falla.
+const PIEZAS = [
+  {
+    campo: 'base_de_datos',
+    titulo: 'Base de datos (Supabase)',
+    bien: (v) => v === 'conectada',
+    arreglo: (v) => {
+      if (/puerto|host|responde en esa dirección/i.test(v))
+        return ['Revisa DATABASE_URL en Vercel', 'Tiene que ser la cadena de Supabase → Database → Connection string, pestaña Transaction, puerto 6543.'];
+      if (/expiró|5432|6543/i.test(v))
+        return ['Estás usando el puerto equivocado', 'Cambia el 5432 por el 6543 (el pooler en modo Transaction) en DATABASE_URL.'];
+      if (/contraseña/i.test(v))
+        return ['La contraseña de DATABASE_URL no es correcta', 'En la cadena hay que sustituir [YOUR-PASSWORD] por la contraseña real del proyecto.'];
+      return ['Revisa DATABASE_URL en Vercel', 'Supabase → Project Settings → Database → Connection string (Transaction, puerto 6543).'];
+    },
+  },
+  {
+    campo: 'almacen_fotos',
+    titulo: 'Almacén de fotos (Supabase Storage)',
+    bien: (v) => v === 'conectado' || v === 'simulado',
+    arreglo: (v) => {
+      if (/no existe un bucket/i.test(v))
+        return ['Falta crear el bucket', 'Supabase → Storage → New bucket. Nómbralo exactamente "billetes" y déjalo PRIVADO (Public bucket: NO).'];
+      if (/service_role|no es válida|sin permiso/i.test(v))
+        return ['La clave no es la correcta', 'Supabase → Project Settings → API. Copia la clave "service_role" (la secreta), no la "anon", en SUPABASE_SERVICE_ROLE_KEY.'];
+      if (/faltan/i.test(v))
+        return ['Faltan variables en Vercel', 'Añade SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Settings → Environment Variables, y vuelve a desplegar.'];
+      if (/PÚBLICO/i.test(v))
+        return ['El bucket está público', 'Supabase → Storage → el bucket → hazlo privado. Las fotos de los billetes no deben quedar abiertas en internet.'];
+      if (/alcanzar Supabase/i.test(v))
+        return ['SUPABASE_URL no es correcta', 'Supabase → Project Settings → API → Project URL (algo como https://xxxx.supabase.co).'];
+      return ['Revisa la configuración de Storage', 'Bucket privado llamado "billetes", y la clave service_role en Vercel.'];
+    },
+  },
+  {
+    campo: 'clave_claude',
+    titulo: 'Clave de Claude',
+    bien: (v) => v === 'configurada',
+    arreglo: () => ['Falta ANTHROPIC_API_KEY', 'console.anthropic.com → API Keys → Create Key. Pégala en Vercel → Settings → Environment Variables y vuelve a desplegar.'],
+  },
+];
+
+function pintarError(titulo, explicacion, crudo) {
+  $('#resumen').innerHTML =
+    `<p class="titular">❌ ${titulo}</p><p class="tenue">${explicacion}</p>`;
+  $('#piezas').hidden = true;
+  $('#crudo').textContent = crudo || '—';
+}
+
+async function comprobar() {
+  $('#resumen').innerHTML = '<p class="cargando">Comprobando…</p>';
+  $('#piezas').hidden = true;
+
+  let respuesta, texto;
+  try {
+    respuesta = await fetch('/api/salud', { cache: 'no-store' });
+    texto = await respuesta.text();
+  } catch (err) {
+    return pintarError(
+      'No se pudo contactar con el servidor',
+      'O no hay conexión a internet, o la aplicación no está desplegada en esta dirección.',
+      String(err)
+    );
+  }
+
+  let datos;
+  try {
+    datos = JSON.parse(texto);
+  } catch {
+    // Respuesta que no es JSON: casi siempre la página 404 de Vercel.
+    return pintarError(
+      `El servidor respondió ${respuesta.status}, pero no con el diagnóstico`,
+      respuesta.status === 404
+        ? 'La ruta /api/salud no existe en el despliegue actual. Casi seguro Vercel está publicando una versión vieja: entra en Deployments y comprueba que el último despliegue terminó bien (Ready) y que es de la rama main.'
+        : 'La aplicación devolvió algo inesperado. Mira los logs en Vercel → Deployments → el último → Functions.',
+      texto.slice(0, 800)
+    );
+  }
+
+  $('#crudo').textContent = JSON.stringify(datos, null, 2);
+
+  const fallos = PIEZAS.filter((p) => !p.bien(datos[p.campo] ?? ''));
+  $('#resumen').innerHTML = fallos.length === 0
+    ? `<p class="titular">✅ Todo está bien configurado</p>
+       <p class="tenue">La app puede guardar fotos y leer los billetes. Modelo en uso: ${datos.modelo || '—'}.</p>`
+    : `<p class="titular">⚠️ Falta configurar ${fallos.length} ${fallos.length === 1 ? 'cosa' : 'cosas'}</p>
+       <p class="tenue">Abajo está qué es y cómo arreglarlo. Recuerda que tras cambiar cualquier variable en Vercel hay que <strong>volver a desplegar</strong>.</p>`;
+
+  $('#piezas').innerHTML = PIEZAS.map((p) => {
+    const valor = datos[p.campo] ?? 'sin respuesta';
+    const bien = p.bien(valor);
+    const [que, como] = bien ? [] : p.arreglo(String(valor));
+    return `
+      <div class="pieza">
+        <span class="marca">${bien ? '✅' : '❌'}</span>
+        <div>
+          <h3>${p.titulo}</h3>
+          <div class="detalle">${String(valor)}</div>
+          ${bien ? '' : `<div class="arreglo"><strong>${que}</strong>${como}</div>`}
+        </div>
+      </div>`;
+  }).join('');
+  $('#piezas').hidden = false;
+}
+
+$('#reintentar').addEventListener('click', comprobar);
+comprobar();
+</script>
+</body>
+</html>
