@@ -21,6 +21,10 @@ Funciona en teléfono y en computadora: es una página web que se instala como a
 | **Sin señal** | Si no hay internet, la foto queda guardada en el teléfono y se envía sola cuando vuelve la conexión. |
 | **Corregir a mano** | Si Claude leyó mal un dígito, se corrige con el lápiz ✏️ y queda marcado como verificado. |
 
+> **¿No eres programador o no sabes por dónde empezar?**
+> Lee **[EMPEZAR.md](EMPEZAR.md)**: está escrito paso a paso, desde instalar
+> Node.js hasta abrir la app en el teléfono.
+
 ---
 
 ## Puesta en marcha

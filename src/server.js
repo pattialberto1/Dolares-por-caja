@@ -1,8 +1,9 @@
 'use strict';
 
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 const path = require('node:path');
+const os = require('node:os');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 
@@ -70,15 +71,34 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Error interno del servidor.' });
 });
 
+/** Direcciones de esta computadora dentro de la red local (para los teléfonos). */
+function direccionesLocales() {
+  return Object.values(os.networkInterfaces())
+    .flat()
+    .filter((i) => i && i.family === 'IPv4' && !i.internal)
+    .map((i) => i.address);
+}
+
 const pinInicial = sembrarAdmin();
 
 app.listen(PUERTO, () => {
-  console.log(`\n  Dólares por caja  →  http://localhost:${PUERTO}`);
+  console.log('\n  ┌─────────────────────────────────────────────');
+  console.log('  │  Dólares por caja está funcionando');
+  console.log('  ├─────────────────────────────────────────────');
+  console.log(`  │  En esta computadora:  http://localhost:${PUERTO}`);
+  for (const ip of direccionesLocales()) {
+    console.log(`  │  En el teléfono:       http://${ip}:${PUERTO}`);
+  }
+  console.log('  └─────────────────────────────────────────────');
+  console.log('\n  (El teléfono tiene que estar en la misma red WiFi.)');
+
   if (pinInicial) {
     console.log(`\n  Se creó el usuario "admin" con PIN ${pinInicial}.`);
-    console.log('  Cámbialo desde Ajustes en cuanto entres.\n');
+    console.log('  Entra, ve a Ajustes, cambia ese PIN y añade las cajeras.');
   }
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn('  AVISO: falta ANTHROPIC_API_KEY, la lectura de billetes fallará.\n');
+  if (!process.env.ANTHROPIC_API_KEY && process.env.SIMULAR_LECTURA !== '1') {
+    console.warn('\n  AVISO: falta ANTHROPIC_API_KEY en el archivo .env.');
+    console.warn('  Sin ella la app abre, pero no puede leer los billetes.');
   }
+  console.log('');
 });
