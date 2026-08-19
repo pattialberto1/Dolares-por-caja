@@ -112,6 +112,8 @@ async function subir(buffer, cajeraId, nota) {
 
     const salud = await pedir('/api/salud');
     comprobar('el diagnóstico reporta la base conectada', salud.datos.base_de_datos === 'conectada', salud.datos);
+    comprobar('el diagnóstico comprueba también el almacén de fotos',
+      salud.datos.almacen_fotos === 'simulado', salud.datos.almacen_fotos);
 
     console.log('\nCajeras');
     const cajera = await pedirJson('/api/cajeras', 'POST', { nombre: 'María' });

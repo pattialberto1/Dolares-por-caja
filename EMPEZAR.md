@@ -195,5 +195,13 @@ copiada o sin saldo en la cuenta.
 **La lectura tarda y se corta** — el límite de la función está en 60 segundos
 (`vercel.json`). Si tus fotos son muy grandes, baja `MAX_LADO_PX` a 1400.
 
-**Las fotos no se ven** — el bucket tiene que llamarse `billetes` (o lo que
-pongas en `BUCKET_FOTOS`) y la clave debe ser la `service_role`, no la `anon`.
+**Al subir una foto sale un error** — abre `/api/salud` y mira `almacen_fotos`.
+Te dice cuál de estas cuatro es:
+
+- *no existe un bucket llamado "billetes"* → créalo en Supabase → Storage, con
+  ese nombre exacto y **privado**.
+- *la clave no es válida* → copiaste la `anon` en vez de la `service_role`.
+- *sin permiso sobre el bucket* → misma causa: falta la `service_role`.
+- *no se pudo alcanzar Supabase* → revisa `SUPABASE_URL`.
+
+Recuerda que después de tocar cualquier variable hay que **volver a desplegar**.

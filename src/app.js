@@ -103,22 +103,24 @@ app.get('/api/yo', async (req, res, next) => {
 app.get('/api/salud', async (req, res) => {
   const estado = {
     base_de_datos: 'sin comprobar',
-    almacen_fotos: process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY ? 'configurado' : 'faltan variables',
+    almacen_fotos: 'sin comprobar',
     clave_claude: process.env.ANTHROPIC_API_KEY ? 'configurada' : 'falta ANTHROPIC_API_KEY',
     modelo: require('./claude').MODELO,
     hora: new Date().toISOString(),
   };
 
-  try {
-    await consultar('SELECT 1');
-    await consultar('DELETE FROM sesiones WHERE expira_en < now()'); // limpieza barata, sin cron
-    estado.base_de_datos = 'conectada';
-  } catch (err) {
-    estado.base_de_datos = descripcionDeFallo(err);
-  }
+  const [base, almacen] = await Promise.all([
+    consultar('SELECT 1')
+      .then(() => consultar('DELETE FROM sesiones WHERE expira_en < now()')) // limpieza barata, sin cron
+      .then(() => 'conectada')
+      .catch((err) => descripcionDeFallo(err) || `error: ${err.message}`),
+    require('./almacen').comprobar(),
+  ]);
+  estado.base_de_datos = base;
+  estado.almacen_fotos = almacen;
 
-  const todoBien = estado.base_de_datos === 'conectada' &&
-    estado.almacen_fotos === 'configurado' && estado.clave_claude === 'configurada';
+  const todoBien = base === 'conectada' &&
+    (almacen === 'conectado' || almacen === 'simulado') && estado.clave_claude === 'configurada';
   res.status(todoBien ? 200 : 503).json({ ok: todoBien, ...estado });
 });
 
@@ -143,6 +145,9 @@ app.use((err, req, res, next) => {
   // Faltan variables de entorno o la base no responde: son problemas de
   // configuración, y decirlo ahorra horas de buscar a ciegas.
   if (/DATABASE_URL|SUPABASE_/.test(err?.message || '')) {
+    return res.status(503).json({ error: err.message });
+  }
+  if (err?.esAlmacen) {
     return res.status(503).json({ error: err.message });
   }
   const fallo = descripcionDeFallo(err);
