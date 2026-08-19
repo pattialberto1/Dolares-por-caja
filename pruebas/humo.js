@@ -175,9 +175,24 @@ async function subir(buffer, cajeraId, nota) {
       (await pedir('/api/cajeras?todas=1')).datos.cajeras.some((c) => c.id === otra.datos.cajera.id));
     await pedirJson('/api/cajeras/' + otra.datos.cajera.id, 'PATCH', { activa: true });
 
+    console.log('\nReasignar una foto a otra cajera');
+    const capturaB = subidaB.datos.captura;
+    comprobar('la foto empieza con la cajera equivocada', capturaB.cajera === 'Yoselin', capturaB.cajera);
+    const reasignada = await pedirJson('/api/capturas/' + capturaB.id, 'PATCH', { cajera_id: cajera.datos.cajera.id });
+    comprobar('la foto cambia de cajera', reasignada.datos.captura?.cajera === 'María', reasignada.datos);
+    comprobar('y sus billetes se van con ella',
+      reasignada.datos.captura.billetes.every((b) => b.cajera === 'María'), reasignada.datos.captura.billetes);
+    const trasReasignar = await pedir('/api/billetes/buscar?q=PL11112222C');
+    comprobar('la búsqueda ya devuelve la cajera nueva',
+      trasReasignar.datos.exactos[0]?.cajera === 'María', trasReasignar.datos.exactos[0]?.cajera);
+    comprobar('una cajera inválida se rechaza',
+      (await pedirJson('/api/capturas/' + capturaB.id, 'PATCH', { cajera_id: 99999 })).estado === 400);
+
     console.log('\nReportes');
     const resumen = await pedir('/api/reportes/resumen');
     comprobar('el resumen suma por cajera', resumen.datos.por_cajera?.length === 2, resumen.datos);
+    comprobar('el monto se movió a la cajera correcta',
+      resumen.datos.por_cajera.find((c) => c.nombre === 'María')?.billetes === 2, resumen.datos.por_cajera);
     comprobar('el total de billetes es 2', resumen.datos.totales.billetes === 2, resumen.datos.totales);
     const csv = await pedir('/api/reportes/exportar.csv');
     comprobar('el CSV trae cabecera y filas', csv.datos.includes('serial') && csv.datos.split('\n').length >= 3);

@@ -164,6 +164,32 @@ router.post('/:id/reprocesar', requiereSesion, async (req, res, next) => {
   }
 });
 
+// --- Cambiar la cajera (o la nota) de una foto ya registrada ---------------
+// Reasigna también sus billetes: si la foto era de otra cajera, todo lo que
+// salga en ella lo es.
+router.patch('/:id', requiereSesion, async (req, res, next) => {
+  try {
+    const captura = await unaFila('SELECT * FROM capturas WHERE id = $1', [Number(req.params.id) || 0]);
+    if (!captura) return res.status(404).json({ error: 'Captura no encontrada.' });
+
+    const cajeraId = req.body.cajera_id !== undefined ? Number(req.body.cajera_id) : captura.cajera_id;
+    if (!(await unaFila('SELECT 1 FROM cajeras WHERE id = $1', [cajeraId]))) {
+      return res.status(400).json({ error: 'Cajera no válida.' });
+    }
+
+    const nota = req.body.nota !== undefined ? String(req.body.nota).trim() || null : captura.nota;
+
+    await enTransaccion(async (cliente) => {
+      await cliente.query('UPDATE capturas SET cajera_id = $1, nota = $2 WHERE id = $3', [cajeraId, nota, captura.id]);
+      await cliente.query('UPDATE billetes SET cajera_id = $1 WHERE captura_id = $2', [cajeraId, captura.id]);
+    });
+
+    res.json({ captura: await capturaCompleta(captura.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // --- Listado de capturas recientes ----------------------------------------
 router.get('/', requiereSesion, async (req, res, next) => {
   try {

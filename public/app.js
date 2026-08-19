@@ -405,7 +405,7 @@ function filaHistorial(c) {
       <div class="billete" data-abrir="${c.id}" style="cursor:pointer">
         ${c.url_mini ? `<img src="${esc(c.url_mini)}" alt="" loading="lazy">` : ''}
         <div class="datos">
-          <strong>${esc(c.cajera)}</strong> · <span data-resumen-fila>${c.n_billetes} billete(s) · ${dinero(c.monto)}</span>
+          <strong data-cajera-fila>${esc(c.cajera)}</strong> · <span data-resumen-fila>${c.n_billetes} billete(s) · ${dinero(c.monto)}</span>
           <div class="tenue pequeno">${fecha(c.recibida_en)}${c.nota ? ' · ' + esc(c.nota) : ''}</div>
           ${c.estado !== 'procesada' ? `<span class="chip ${c.estado === 'error' ? 'mal' : 'alerta'}">${esc(c.estado)}</span>` : ''}
         </div>
@@ -456,6 +456,11 @@ async function alternarDetalle(fila, capturaId) {
   try {
     const { captura } = await api('/api/capturas/' + capturaId);
     panel.innerHTML = `
+      <div class="fila" style="margin-bottom:.6rem">
+        <label style="margin-bottom:0">Cajera de esta foto
+          <select class="cambiar-cajera" data-captura="${captura.id}" data-anterior="${captura.cajera_id}">${opcionesCajera(captura.cajera_id)}</select>
+        </label>
+      </div>
       <div class="contenedor-billetes" data-captura-billetes="${captura.id}">
         ${captura.billetes.map((b) => filaBillete(b)).join('') || '<p class="tenue pequeno">Esta foto no tiene billetes registrados.</p>'}
       </div>
@@ -690,6 +695,34 @@ document.addEventListener('click', async (e) => {
     if (!pin) return;
     try { await apiJson('/api/usuarios/' + resetear.dataset.id, 'PATCH', { pin }); avisar('PIN actualizado.'); }
     catch (err) { avisar(err.message); }
+  }
+});
+
+// Cambiar la cajera de una foto entera (y de todos sus billetes).
+document.addEventListener('change', async (e) => {
+  const selector = e.target.closest('.cambiar-cajera');
+  if (!selector) return;
+
+  const fila = selector.closest('[data-fila]');
+  const anterior = selector.dataset.anterior || '';
+  selector.disabled = true;
+  try {
+    const { captura } = await apiJson('/api/capturas/' + selector.dataset.captura, 'PATCH', {
+      cajera_id: Number(selector.value),
+    });
+    // La cabecera y los billetes desplegados llevan el nombre de la cajera.
+    const nombre = fila?.querySelector('[data-cajera-fila]');
+    if (nombre) nombre.textContent = captura.cajera;
+    const panel = fila?.querySelector('.contenedor-billetes');
+    if (panel) panel.innerHTML = captura.billetes.map((b) => filaBillete(b)).join('');
+    actualizarCabeceraFila(fila);
+    avisar(`Foto reasignada a ${captura.cajera}.`);
+  } catch (err) {
+    if (anterior) selector.value = anterior;
+    avisar(err.message);
+  } finally {
+    selector.disabled = false;
+    selector.dataset.anterior = selector.value;
   }
 });
 
