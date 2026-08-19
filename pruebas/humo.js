@@ -110,6 +110,9 @@ async function subir(buffer, cajeraId, nota) {
     const entrada = await pedirJson('/api/entrar', 'POST', { nombre: 'admin', pin: '9999' });
     comprobar('admin entra con su PIN', entrada.estado === 200, entrada.datos);
 
+    const salud = await pedir('/api/salud');
+    comprobar('el diagnóstico reporta la base conectada', salud.datos.base_de_datos === 'conectada', salud.datos);
+
     console.log('\nCajeras');
     const cajera = await pedirJson('/api/cajeras', 'POST', { nombre: 'María' });
     const otra = await pedirJson('/api/cajeras', 'POST', { nombre: 'Yoselin' });

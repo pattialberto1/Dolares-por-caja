@@ -69,8 +69,11 @@ Empieza por `sk-ant-` y **solo se muestra una vez**.
 
 1. En <https://vercel.com> → **Add New → Project** → importa el repositorio
    `Dolares-por-caja`.
-2. En **Branch**, elige `claude/dollars-received-database-gxgmwh`.
-   (O primero haz merge de esa rama a `main` y déjalo en `main`.)
+2. **La rama importa.** El código está en `claude/dollars-received-database-gxgmwh`,
+   y Vercel publica `main` por defecto. Si no lo cambias, la página principal
+   responde **404: NOT_FOUND**. Lo más simple es hacer merge de esa rama a `main`
+   en GitHub antes de desplegar; si prefieres no tocarla, ve a
+   **Settings → Git → Production Branch** y ponla ahí.
 3. **Framework Preset: Other.** No toques Build Command ni Output Directory:
    `vercel.json` ya lo tiene resuelto.
 4. Despliega **Environment Variables** y añade estas cinco:
@@ -159,6 +162,24 @@ El gasto real de Claude lo ves medido en la pestaña **Reportes**.
 ---
 
 ## Si algo falla
+
+**Lo primero, siempre:** abre `https://tu-app.vercel.app/api/salud`. Te dice en
+una línea qué pieza está fallando, sin exponer ninguna clave:
+
+```json
+{ "ok": false,
+  "base_de_datos": "la conexión expiró — suele pasar al usar el puerto 5432 en vez del 6543",
+  "almacen_fotos": "faltan variables",
+  "clave_claude": "configurada" }
+```
+
+**404: NOT_FOUND en la página principal** — Vercel está sirviendo la rama
+equivocada. Por defecto publica `main`, y el código está en
+`claude/dollars-received-database-gxgmwh`. Dos salidas:
+
+- **Vercel → Settings → Git → Production Branch** → cámbiala a esa rama y vuelve
+  a desplegar (Deployments → ⋯ → Redeploy).
+- O haz merge de la rama a `main` en GitHub, y Vercel despliega solo.
 
 **"Falta DATABASE_URL"** — la variable no llegó a Vercel. Revisa que esté en
 Settings → Environment Variables y **vuelve a desplegar**: Vercel no aplica

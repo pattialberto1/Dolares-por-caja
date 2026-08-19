@@ -23,6 +23,9 @@ app.use(cookieParser());
 // petición. En Vercel esto ocurre en cada arranque en frío y es idempotente.
 let listo = null;
 app.use((req, res, next) => {
+  // El diagnóstico tiene que responder aunque la base esté caída: es
+  // precisamente cuando hace falta.
+  if (req.path === '/api/salud') return next();
   if (!listo) {
     listo = prepararEsquema()
       .then(() => sembrarAdmin())
@@ -30,6 +33,25 @@ app.use((req, res, next) => {
   }
   listo.then(() => next()).catch(next);
 });
+
+/**
+ * Traduce un fallo de conexión a Postgres en una frase accionable. Devuelve
+ * null si el error no es de conexión. Nunca incluye la cadena de conexión.
+ */
+function descripcionDeFallo(err) {
+  const codigo = err?.code;
+  if (codigo === 'ECONNREFUSED' || codigo === 'ENOTFOUND' || codigo === 'EAI_AGAIN') {
+    return 'no responde en esa dirección — revisa DATABASE_URL (host y puerto).';
+  }
+  if (codigo === 'ETIMEDOUT' || /timeout/i.test(err?.message || '')) {
+    return 'la conexión expiró — suele pasar al usar el puerto 5432 en vez del 6543 (pooler en modo transaction).';
+  }
+  if (codigo === '28P01') return 'contraseña incorrecta en DATABASE_URL.';
+  if (codigo === '3D000') return 'esa base de datos no existe.';
+  if (codigo === '53300') return 'demasiadas conexiones — usa el pooler de Supabase (puerto 6543).';
+  if (codigo === '42501') return 'el usuario no tiene permisos para crear las tablas.';
+  return null;
+}
 
 const opcionesCookie = {
   httpOnly: true,
@@ -74,14 +96,30 @@ app.get('/api/yo', async (req, res, next) => {
   }
 });
 
-// Limpieza de sesiones vencidas; barata y sin cron.
-app.get('/api/salud', async (req, res, next) => {
+/**
+ * Diagnóstico: dice qué pieza está fallando sin exponer ningún valor secreto.
+ * Solo informa si cada variable está puesta y si la conexión responde.
+ */
+app.get('/api/salud', async (req, res) => {
+  const estado = {
+    base_de_datos: 'sin comprobar',
+    almacen_fotos: process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY ? 'configurado' : 'faltan variables',
+    clave_claude: process.env.ANTHROPIC_API_KEY ? 'configurada' : 'falta ANTHROPIC_API_KEY',
+    modelo: require('./claude').MODELO,
+    hora: new Date().toISOString(),
+  };
+
   try {
-    await consultar('DELETE FROM sesiones WHERE expira_en < now()');
-    res.json({ ok: true, hora: new Date().toISOString() });
+    await consultar('SELECT 1');
+    await consultar('DELETE FROM sesiones WHERE expira_en < now()'); // limpieza barata, sin cron
+    estado.base_de_datos = 'conectada';
   } catch (err) {
-    next(err);
+    estado.base_de_datos = descripcionDeFallo(err);
   }
+
+  const todoBien = estado.base_de_datos === 'conectada' &&
+    estado.almacen_fotos === 'configurado' && estado.clave_claude === 'configurada';
+  res.status(todoBien ? 200 : 503).json({ ok: todoBien, ...estado });
 });
 
 // --- API ------------------------------------------------------------------
@@ -99,11 +137,20 @@ app.use((err, req, res, next) => {
   if (err?.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({ error: 'La foto pesa demasiado. Vuelve a intentarlo.' });
   }
-  console.error('Error:', err?.message, err?.stack?.split('\n')[1]?.trim());
-  const esConfig = /DATABASE_URL|SUPABASE_/.test(err?.message || '');
-  res.status(esConfig ? 503 : 500).json({
-    error: esConfig ? err.message : 'Error interno del servidor.',
-  });
+
+  console.error('Error:', err?.code || '', err?.message, err?.stack?.split('\n')[1]?.trim());
+
+  // Faltan variables de entorno o la base no responde: son problemas de
+  // configuración, y decirlo ahorra horas de buscar a ciegas.
+  if (/DATABASE_URL|SUPABASE_/.test(err?.message || '')) {
+    return res.status(503).json({ error: err.message });
+  }
+  const fallo = descripcionDeFallo(err);
+  if (fallo) {
+    return res.status(503).json({ error: `No se pudo conectar con la base de datos: ${fallo}` });
+  }
+
+  res.status(500).json({ error: 'Error interno del servidor.' });
 });
 
 module.exports = app;
