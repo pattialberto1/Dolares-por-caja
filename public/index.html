@@ -72,6 +72,10 @@
         <button id="btn-reintentar" class="secundario">Enviar ahora</button>
       </div>
 
+      <div id="cabecera-resultados" class="fila" style="margin-bottom:.5rem" hidden>
+        <strong class="crece" id="resumen-sesion"></strong>
+        <button id="btn-limpiar" class="enlace-tenue" style="flex:0">Limpiar</button>
+      </div>
       <div id="resultados"></div>
     </section>
 
@@ -149,6 +153,39 @@
     </section>
   </main>
 </div>
+
+<dialog id="editor">
+  <form id="form-billete" class="editor">
+    <h3 id="editor-titulo">Corregir billete</h3>
+    <p class="tenue pequeno" id="editor-foto"></p>
+
+    <label>Número de serie
+      <input name="serial" autocapitalize="characters" autocomplete="off" placeholder="MB 12345678 A">
+    </label>
+    <div class="fila">
+      <label>Denominación
+        <select name="denominacion">
+          <option value="">—</option>
+          <option>1</option><option>2</option><option>5</option><option>10</option>
+          <option>20</option><option>50</option><option>100</option>
+        </select>
+      </label>
+      <label>Cajera
+        <select name="cajera_id"></select>
+      </label>
+    </div>
+    <div class="fila">
+      <label>Serie <input name="serie" placeholder="2017A" autocomplete="off"></label>
+      <label>Nota <input name="observaciones" autocomplete="off"></label>
+    </div>
+
+    <div class="fila" style="margin-top:.4rem">
+      <button type="button" id="btn-cancelar" class="secundario">Cancelar</button>
+      <button type="submit" class="principal">Guardar</button>
+    </div>
+    <button type="button" id="btn-eliminar" class="peligro">Eliminar este billete</button>
+  </form>
+</dialog>
 
 <div id="aviso" class="aviso oculto"></div>
 <script src="/app.js"></script>

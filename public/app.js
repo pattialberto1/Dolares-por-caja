@@ -127,6 +127,24 @@ async function subirFoto({ grande, mini }, cajeraId, nota) {
   return datos.captura;
 }
 
+// Lo registrado desde que se abrió la app, solo para no perder la cuenta:
+// el registro de verdad está en Historial y Reportes.
+const sesion = { fotos: 0, billetes: 0, monto: 0 };
+
+function pintarResumenSesion() {
+  const hay = sesion.fotos > 0;
+  $('#cabecera-resultados').hidden = !hay;
+  if (!hay) return;
+  $('#resumen-sesion').textContent =
+    `${sesion.fotos} foto${sesion.fotos === 1 ? '' : 's'} · ${sesion.billetes} billete${sesion.billetes === 1 ? '' : 's'} · ${dinero(sesion.monto)}`;
+}
+
+function limpiarResultados() {
+  $('#resultados').innerHTML = '';
+  sesion.fotos = sesion.billetes = sesion.monto = 0;
+  pintarResumenSesion();
+}
+
 async function manejarArchivos(seleccionados) {
   const archivos = [...seleccionados].filter((a) => a.type.startsWith('image/'));
   if (archivos.length === 0) return avisar('Elige imágenes: eso no parece una foto.');
@@ -139,6 +157,10 @@ async function manejarArchivos(seleccionados) {
   const nota = $('#nota').value;
   if (!cajeraId) return avisar('Primero elige la cajera.');
 
+  // Cada tanda parte de cero: si no, la pantalla crece sin fin foto tras foto.
+  $('#resultados').innerHTML = '';
+  sesion.fotos = sesion.billetes = sesion.monto = 0;
+
   const botones = [$('#btn-foto'), $('#btn-galeria')];
   botones.forEach((b) => (b.disabled = true));
   for (const archivo of archivos) {
@@ -149,6 +171,10 @@ async function manejarArchivos(seleccionados) {
         const captura = await subirFoto(imagenes, cajeraId, nota);
         marcador.remove();
         pintarCaptura(captura, true);
+        sesion.fotos++;
+        sesion.billetes += captura.billetes.length;
+        sesion.monto += captura.billetes.reduce((t, b) => t + (b.denominacion || 0), 0);
+        pintarResumenSesion();
       } catch (err) {
         if (!navigator.onLine || /fetch|network|failed/i.test(err.message)) {
           await encolar({
@@ -182,6 +208,11 @@ function pintarCargando(cajeraNombre) {
   return div;
 }
 
+// Lo que hay pintado en pantalla, para poder abrir el editor con los datos
+// completos sin volver a pedirlos al servidor.
+const enPantalla = new Map();
+const recordar = (b) => { enPantalla.set(String(b.id), b); return b; };
+
 function chipConfianza(b) {
   if (b.verificado) return '<span class="chip">verificado</span>';
   if (b.confianza === 'alta') return '<span class="chip">leído ok</span>';
@@ -189,6 +220,7 @@ function chipConfianza(b) {
 }
 
 function filaBillete(b, conFoto = false) {
+  recordar(b);
   const repetido = b.duplicado_de || b.repeticiones > 0;
   return `
     <div class="billete" data-billete="${b.id}">
@@ -221,7 +253,7 @@ function pintarCaptura(captura, alPrincipio = false) {
     </div>
     ${captura.estado === 'error' ? `<p class="error">No se pudo leer: ${esc(captura.error || '')}</p>` : ''}
     ${captura.nota ? `<p class="tenue pequeno">${esc(captura.nota)}</p>` : ''}
-    <div class="contenedor-billetes" style="margin-top:.6rem">${captura.billetes.map((b) => filaBillete(b)).join('') || '<p class="tenue">No se detectó ningún billete en la foto.</p>'}</div>
+    <div class="contenedor-billetes" data-captura-billetes="${captura.id}" style="margin-top:.6rem">${captura.billetes.map((b) => filaBillete(b)).join('') || '<p class="tenue">No se detectó ningún billete en la foto.</p>'}</div>
     <div class="fila" style="margin-top:.5rem">
       <button class="secundario agregar" data-captura="${captura.id}" data-cajera="${captura.cajera_id}">+ Añadir billete a mano</button>
       ${captura.url_foto ? `<a href="${esc(captura.url_foto)}" target="_blank" rel="noopener" class="tenue pequeno" style="flex:0;white-space:nowrap">Ver foto</a>` : ''}
@@ -231,27 +263,98 @@ function pintarCaptura(captura, alPrincipio = false) {
 }
 
 /* ------------------------------------------------- edición de un billete */
-async function editarBillete(id, contenedor) {
-  const actual = contenedor.querySelector('.serial').textContent.trim();
-  const serial = prompt('Serial correcto del billete:', actual === '(sin leer)' ? '' : actual);
-  if (serial === null) return;
-  const denominacion = prompt('Denominación (1, 5, 10, 20, 50, 100):', '') || '';
+// Un solo formulario sirve para corregir un billete ya registrado y para
+// añadir uno a mano. Guarda el contexto de lo que se está editando.
+let editando = null;
+
+function opcionesCajera(seleccionada) {
+  return cajeras
+    .map((c) => `<option value="${c.id}" ${String(c.id) === String(seleccionada) ? 'selected' : ''}>${esc(c.nombre)}</option>`)
+    .join('');
+}
+
+/**
+ * Abre el editor. Con `billete`, lo corrige; con `nuevo`, crea uno a mano en
+ * la captura indicada.
+ */
+function abrirEditor({ billete = null, capturaId = null, cajeraId = null, destino = null } = {}) {
+  const f = $('#form-billete');
+  // `destino` es el contenedor concreto donde insertar. Buscarlo por selector
+  // no sirve: la misma captura puede estar pintada en Registrar y en Historial.
+  editando = { billete, capturaId, destino };
+
+  $('#editor-titulo').textContent = billete ? 'Corregir billete' : 'Añadir billete a mano';
+  $('#editor-foto').textContent = billete
+    ? `Registrado el ${fecha(billete.creado_en)}${billete.registrado_por ? ' por ' + billete.registrado_por : ''}`
+    : 'Se registra sobre la misma foto.';
+
+  f.cajera_id.innerHTML = opcionesCajera(billete?.cajera_id ?? cajeraId);
+  f.serial.value = billete?.serial && billete.serial !== '(sin leer)' ? billete.serial : '';
+  f.denominacion.value = billete?.denominacion ? String(billete.denominacion) : '';
+  f.serie.value = billete?.serie || '';
+  f.observaciones.value = billete?.observaciones || '';
+  $('#btn-eliminar').hidden = !billete;
+
+  $('#editor').showModal();
+  // En el teléfono, abrir el teclado de golpe tapa el formulario entero.
+  if (!matchMedia('(max-width: 620px)').matches) f.serial.focus();
+}
+
+/** Repinta (o quita) un billete allá donde esté en pantalla. */
+function refrescarBillete(id, billete) {
+  for (const el of $$(`[data-billete="${id}"]`)) {
+    if (!billete) { el.remove(); continue; }
+    el.outerHTML = el.classList.contains('resultado') ? tarjetaResultado(billete) : filaBillete(billete);
+  }
+}
+
+async function guardarBillete(evento) {
+  evento.preventDefault();
+  const f = $('#form-billete');
+  const serial = f.serial.value.trim();
+  if (!serial) return avisar('Escribe el número de serie.');
+
+  const datos = {
+    serial,
+    denominacion: f.denominacion.value ? Number(f.denominacion.value) : null,
+    cajera_id: Number(f.cajera_id.value),
+    serie: f.serie.value.trim(),
+    observaciones: f.observaciones.value.trim(),
+  };
+
   try {
-    const { billete } = await apiJson(`/api/billetes/${id}`, 'PATCH', {
-      serial,
-      ...(denominacion ? { denominacion: Number(denominacion) } : {}),
-    });
-    contenedor.outerHTML = contenedor.classList.contains('resultado')
-      ? tarjetaResultado(billete)
-      : filaBillete(billete);
-    avisar('Billete corregido.');
+    if (editando.billete) {
+      const { billete } = await apiJson(`/api/billetes/${editando.billete.id}`, 'PATCH', datos);
+      refrescarBillete(billete.id, billete);
+      $$('[data-fila]').forEach(actualizarCabeceraFila);
+      avisar('Billete corregido.');
+    } else {
+      const { billete } = await apiJson('/api/billetes', 'POST', { ...datos, captura_id: editando.capturaId });
+      editando.destino?.insertAdjacentHTML('beforeend', filaBillete(billete));
+      actualizarCabeceraFila(editando.destino?.closest('[data-fila]'));
+      avisar('Billete añadido.');
+    }
+    $('#editor').close();
+  } catch (err) { avisar(err.message); }
+}
+
+async function eliminarBillete() {
+  if (!editando?.billete) return;
+  if (!confirm(`¿Eliminar el billete ${editando.billete.serial}? No se puede deshacer.`)) return;
+  try {
+    await api(`/api/billetes/${editando.billete.id}`, { method: 'DELETE' });
+    refrescarBillete(editando.billete.id, null);
+    $$('[data-fila]').forEach(actualizarCabeceraFila);
+    $('#editor').close();
+    avisar('Billete eliminado.');
   } catch (err) { avisar(err.message); }
 }
 
 function tarjetaResultado(b) {
+  recordar(b);
   const repetido = b.repeticiones > 0 || b.duplicado_de;
   return `
-    <div class="resultado">
+    <div class="resultado" data-billete="${b.id}">
       ${b.url_mini ? `<a href="${esc(b.url_foto || b.url_mini)}" target="_blank" rel="noopener"><img src="${esc(b.url_mini)}" alt="foto del billete" loading="lazy"></a>` : ''}
       <div class="datos">
         <div class="tenue pequeno">Recibido por</div>
@@ -296,23 +399,74 @@ async function buscar() {
 }
 
 /* --------------------------------------------------------------- historial */
+function filaHistorial(c) {
+  return `
+    <div data-fila="${c.id}">
+      <div class="billete" data-abrir="${c.id}" style="cursor:pointer">
+        ${c.url_mini ? `<img src="${esc(c.url_mini)}" alt="" loading="lazy">` : ''}
+        <div class="datos">
+          <strong>${esc(c.cajera)}</strong> · <span data-resumen-fila>${c.n_billetes} billete(s) · ${dinero(c.monto)}</span>
+          <div class="tenue pequeno">${fecha(c.recibida_en)}${c.nota ? ' · ' + esc(c.nota) : ''}</div>
+          ${c.estado !== 'procesada' ? `<span class="chip ${c.estado === 'error' ? 'mal' : 'alerta'}">${esc(c.estado)}</span>` : ''}
+        </div>
+        <span class="tenue" data-flecha>▾</span>
+      </div>
+      <div class="detalle-captura" hidden></div>
+    </div>`;
+}
+
 async function cargarHistorial() {
   $('#lista-historial').innerHTML = '<div class="tarjeta"><p class="cargando">Cargando…</p></div>';
   const { capturas } = await api('/api/capturas?limite=50');
   $('#lista-historial').innerHTML = capturas.length
-    ? `<div class="tarjeta">${capturas
-        .map(
-          (c) => `<div class="billete" data-abrir="${c.id}">
-            ${c.url_mini ? `<img src="${esc(c.url_mini)}" alt="" loading="lazy">` : ''}
-            <div class="datos">
-              <strong>${esc(c.cajera)}</strong> · ${c.n_billetes} billete(s) · ${dinero(c.monto)}
-              <div class="tenue pequeno">${fecha(c.recibida_en)}${c.nota ? ' · ' + esc(c.nota) : ''}</div>
-              ${c.estado !== 'procesada' ? `<span class="chip ${c.estado === 'error' ? 'mal' : 'alerta'}">${esc(c.estado)}</span>` : ''}
-            </div>
-          </div>`
-        )
-        .join('')}</div>`
+    ? `<div class="tarjeta">${capturas.map(filaHistorial).join('')}</div>`
     : '<div class="tarjeta"><p class="tenue">Todavía no hay fotos registradas.</p></div>';
+}
+
+/**
+ * Recalcula el "N billete(s) · $X" de una fila del historial a partir de lo
+ * que hay desplegado, para que no quede desfasado al añadir o borrar.
+ */
+function actualizarCabeceraFila(fila) {
+  const resumen = fila?.querySelector('[data-resumen-fila]');
+  const panel = fila?.querySelector('.contenedor-billetes');
+  if (!resumen || !panel) return;
+
+  const billetes = [...panel.querySelectorAll('[data-billete]')]
+    .map((el) => enPantalla.get(el.dataset.billete))
+    .filter(Boolean);
+  const monto = billetes.reduce((t, b) => t + (b.denominacion || 0), 0);
+  resumen.textContent = `${billetes.length} billete(s) · ${dinero(monto)}`;
+}
+
+/** Despliega (o cierra) los billetes de una captura dentro del historial. */
+async function alternarDetalle(fila, capturaId) {
+  const panel = fila.querySelector('.detalle-captura');
+  const flecha = fila.querySelector('[data-flecha]');
+
+  if (!panel.hidden) {
+    panel.hidden = true;
+    flecha.textContent = '▾';
+    return;
+  }
+
+  panel.hidden = false;
+  flecha.textContent = '▴';
+  panel.innerHTML = '<p class="cargando">Cargando…</p>';
+  try {
+    const { captura } = await api('/api/capturas/' + capturaId);
+    panel.innerHTML = `
+      <div class="contenedor-billetes" data-captura-billetes="${captura.id}">
+        ${captura.billetes.map((b) => filaBillete(b)).join('') || '<p class="tenue pequeno">Esta foto no tiene billetes registrados.</p>'}
+      </div>
+      <div class="fila" style="margin-top:.5rem">
+        <button class="secundario agregar" data-captura="${captura.id}" data-cajera="${captura.cajera_id}">+ Añadir billete a mano</button>
+        <button class="secundario reprocesar" data-id="${captura.id}" style="flex:0">Volver a leer</button>
+        ${captura.url_foto ? `<a href="${esc(captura.url_foto)}" target="_blank" rel="noopener" class="tenue pequeno" style="flex:0;white-space:nowrap">Ver foto</a>` : ''}
+      </div>`;
+  } catch (err) {
+    panel.innerHTML = `<p class="error">${esc(err.message)}</p>`;
+  }
 }
 
 /* ---------------------------------------------------------------- reportes */
@@ -470,40 +624,46 @@ $('#btn-csv').addEventListener('click', () => {
 
 document.addEventListener('click', async (e) => {
   const editar = e.target.closest('.editar');
-  if (editar) return editarBillete(editar.dataset.id, editar.closest('.billete, .resultado'));
+  if (editar) {
+    const billete = enPantalla.get(String(editar.dataset.id));
+    if (billete) abrirEditor({ billete });
+    return;
+  }
 
   const reprocesar = e.target.closest('.reprocesar');
   if (reprocesar) {
     reprocesar.disabled = true;
     try {
       const { captura } = await api(`/api/capturas/${reprocesar.dataset.id}/reprocesar`, { method: 'POST' });
-      reprocesar.closest('.tarjeta').replaceWith(pintarCaptura(captura));
+      const fila = reprocesar.closest('[data-fila]');
+      if (fila) {
+        // Dentro del historial: se repinta solo la lista de billetes.
+        fila.querySelector('.contenedor-billetes').innerHTML =
+          captura.billetes.map((b) => filaBillete(b)).join('') ||
+          '<p class="tenue pequeno">Esta foto no tiene billetes registrados.</p>';
+        actualizarCabeceraFila(fila);
+        reprocesar.disabled = false;
+      } else {
+        reprocesar.closest('.tarjeta').replaceWith(pintarCaptura(captura));
+      }
+      avisar('Foto leída de nuevo.');
     } catch (err) { avisar(err.message); reprocesar.disabled = false; }
     return;
   }
 
   const agregar = e.target.closest('.agregar');
   if (agregar) {
-    const serial = prompt('Serial del billete:');
-    if (!serial) return;
-    const denominacion = prompt('Denominación:', '') || '';
-    try {
-      const { billete } = await apiJson('/api/billetes', 'POST', {
-        captura_id: agregar.dataset.captura,
-        cajera_id: agregar.dataset.cajera,
-        serial,
-        ...(denominacion ? { denominacion: Number(denominacion) } : {}),
-      });
-      agregar.closest('.tarjeta').querySelector('.contenedor-billetes').insertAdjacentHTML('beforeend', filaBillete(billete));
-    } catch (err) { avisar(err.message); }
+    abrirEditor({
+      capturaId: Number(agregar.dataset.captura),
+      cajeraId: agregar.dataset.cajera,
+      destino: agregar.closest('[data-fila], .tarjeta')?.querySelector('.contenedor-billetes'),
+    });
     return;
   }
 
   const abrir = e.target.closest('[data-abrir]');
   if (abrir) {
-    const { captura } = await api('/api/capturas/' + abrir.dataset.abrir);
-    mostrarVista('registrar');
-    pintarCaptura(captura, true);
+    alternarDetalle(abrir.closest('[data-fila]'), abrir.dataset.abrir);
     return;
   }
 
@@ -532,6 +692,11 @@ document.addEventListener('click', async (e) => {
     catch (err) { avisar(err.message); }
   }
 });
+
+$('#form-billete').addEventListener('submit', guardarBillete);
+$('#btn-cancelar').addEventListener('click', () => $('#editor').close());
+$('#btn-eliminar').addEventListener('click', eliminarBillete);
+$('#btn-limpiar').addEventListener('click', limpiarResultados);
 
 $('#btn-cajera').addEventListener('click', async () => {
   const nombre = $('#nueva-cajera').value.trim();

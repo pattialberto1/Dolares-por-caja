@@ -15,12 +15,12 @@ Funciona en teléfono y en computadora: es una página web que se instala como a
 |---|---|
 | **Registrar** | Se elige la cajera y se sube la foto: tomándola con la cámara, eligiendo varias de la galería, o arrastrándolas desde la computadora. Claude lee cada billete (pueden ir varios en una misma foto) y extrae serial, denominación y año de serie. |
 | **Buscar** | Se escribe el serial completo o un pedazo (los últimos 4 dígitos, por ejemplo) y aparece la cajera, la fecha, la foto original y la nota. |
-| **Historial** | Todas las fotos subidas, con quién las subió y cuánto sumaban. |
+| **Historial** | Todas las fotos subidas, con quién las subió y cuánto sumaban. Al tocar una se despliega ahí mismo con sus billetes, editables uno a uno. |
 | **Reportes** | Total por cajera, por día y por denominación. Descarga a Excel (CSV). Muestra el gasto real de la API. |
 | **Seriales repetidos** | Si un mismo serial aparece dos veces, la app lo señala. O el billete volvió a entrar, o hay una copia: vale la pena mirarlo. |
 | **Diagnóstico** | Una página (`/diagnostico.html`) que comprueba base de datos, almacén de fotos y clave de Claude, y dice qué arreglar y dónde cuando algo falla. |
 | **Sin señal** | Si no hay internet, la foto queda guardada en el teléfono y se envía sola cuando vuelve la conexión. |
-| **Corregir a mano** | Si Claude leyó mal un dígito, se corrige con el lápiz ✏️ y queda marcado como verificado. |
+| **Corregir a mano** | Con el lápiz ✏️ se abre un formulario para cambiar serial, denominación, cajera, serie y nota de cualquier billete ya registrado, o para eliminarlo. Lo corregido queda marcado como verificado. Se llega desde Registrar, desde Buscar y desde Historial. |
 
 ---
 

@@ -141,6 +141,32 @@ button:disabled { opacity: .55; cursor: progress; }
 .chip.mal { background: #fbe3e1; color: var(--rojo); }
 @media (prefers-color-scheme: dark) { .chip.mal { background: #35201e; } }
 
+/* Editor de un billete ya registrado. */
+dialog {
+  border: 0; border-radius: 16px; padding: 0; width: min(440px, calc(100vw - 1.5rem));
+  background: var(--tarjeta); color: var(--texto);
+  box-shadow: 0 10px 40px rgba(0,0,0,.3);
+}
+dialog::backdrop { background: rgba(0,0,0,.5); }
+.editor { padding: 1.1rem; }
+.editor h3 { margin: 0 0 .2rem; font-size: 1.05rem; }
+.editor input[name="serial"] {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 1.15rem; letter-spacing: .5px; font-weight: 700;
+}
+button.peligro {
+  width: 100%; margin-top: .9rem; padding: .6rem;
+  background: none; border: 0; color: var(--rojo);
+  font-size: .9rem; cursor: pointer; text-decoration: underline;
+}
+button.enlace-tenue {
+  background: none; border: 0; color: var(--tenue);
+  font-size: .85rem; cursor: pointer; text-decoration: underline; padding: 0;
+}
+
+/* Detalle de una captura desplegado dentro del historial. */
+.detalle-captura { padding: .2rem 0 .6rem; }
+
 .aviso {
   position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%);
   background: var(--texto); color: var(--fondo);
