@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { db } = require('./db');
+const { consultar, unaFila } = require('./db');
 
 const DIAS_SESION = 30;
 
@@ -19,38 +19,40 @@ function verificarPin(pin, hash) {
   return calculada.length === guardada.length && crypto.timingSafeEqual(calculada, guardada);
 }
 
-function crearSesion(usuarioId) {
+async function crearSesion(usuarioId) {
   const token = crypto.randomBytes(32).toString('hex');
-  db.prepare(
+  await consultar(
     `INSERT INTO sesiones (token, usuario_id, expira_en)
-     VALUES (?, ?, datetime('now', '+${DIAS_SESION} days'))`
-  ).run(token, usuarioId);
+     VALUES ($1, $2, now() + ($3 || ' days')::interval)`,
+    [token, usuarioId, String(DIAS_SESION)]
+  );
   return token;
 }
 
-function borrarSesion(token) {
-  db.prepare('DELETE FROM sesiones WHERE token = ?').run(token);
+async function borrarSesion(token) {
+  if (token) await consultar('DELETE FROM sesiones WHERE token = $1', [token]);
 }
 
-function usuarioDeSesion(token) {
+async function usuarioDeSesion(token) {
   if (!token) return null;
-  return (
-    db
-      .prepare(
-        `SELECT u.id, u.nombre, u.rol, u.cajera_id
-           FROM sesiones s JOIN usuarios u ON u.id = s.usuario_id
-          WHERE s.token = ? AND s.expira_en > datetime('now') AND u.activo = 1`
-      )
-      .get(token) || null
+  return unaFila(
+    `SELECT u.id, u.nombre, u.rol, u.cajera_id
+       FROM sesiones s JOIN usuarios u ON u.id = s.usuario_id
+      WHERE s.token = $1 AND s.expira_en > now() AND u.activo`,
+    [token]
   );
 }
 
 /** Middleware: exige sesión válida. */
-function requiereSesion(req, res, next) {
-  const usuario = usuarioDeSesion(req.cookies?.sesion);
-  if (!usuario) return res.status(401).json({ error: 'Sesión no válida. Inicia sesión de nuevo.' });
-  req.usuario = usuario;
-  next();
+async function requiereSesion(req, res, next) {
+  try {
+    const usuario = await usuarioDeSesion(req.cookies?.sesion);
+    if (!usuario) return res.status(401).json({ error: 'Sesión no válida. Inicia sesión de nuevo.' });
+    req.usuario = usuario;
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 /** Middleware: exige rol admin. */
@@ -61,26 +63,24 @@ function requiereAdmin(req, res, next) {
   next();
 }
 
-/** Crea el usuario admin inicial si la tabla está vacía. */
-function sembrarAdmin() {
-  const total = db.prepare('SELECT COUNT(*) AS n FROM usuarios').get().n;
-  if (total > 0) return null;
+/**
+ * Crea el usuario admin inicial si no hay ninguno. Devuelve el PIN usado la
+ * primera vez, o null si ya existían usuarios.
+ */
+async function sembrarAdmin() {
+  const { n } = await unaFila('SELECT COUNT(*)::int AS n FROM usuarios');
+  if (n > 0) return null;
   const pin = process.env.PIN_ADMIN || '1234';
-  db.prepare('INSERT INTO usuarios (nombre, pin_hash, rol) VALUES (?, ?, ?)').run(
-    'admin',
-    hashPin(pin),
-    'admin'
+  // ON CONFLICT por si dos arranques simultáneos intentan sembrar a la vez.
+  await consultar(
+    `INSERT INTO usuarios (nombre, pin_hash, rol) VALUES ('admin', $1, 'admin')
+     ON CONFLICT (nombre) DO NOTHING`,
+    [hashPin(pin)]
   );
   return pin;
 }
 
 module.exports = {
-  hashPin,
-  verificarPin,
-  crearSesion,
-  borrarSesion,
-  usuarioDeSesion,
-  requiereSesion,
-  requiereAdmin,
-  sembrarAdmin,
+  hashPin, verificarPin, crearSesion, borrarSesion,
+  usuarioDeSesion, requiereSesion, requiereAdmin, sembrarAdmin,
 };

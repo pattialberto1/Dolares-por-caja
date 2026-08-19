@@ -1,150 +1,178 @@
-# Cómo abrirlo en el teléfono
+# Puesta en marcha con Supabase + Vercel
 
-Para que la app se abra en el teléfono tiene que estar **corriendo en algún lado**.
-Hay dos caminos. Empieza por el A para verla hoy; el B es para el uso diario.
+Mismo stack que la app de delivery. Son cuatro pasos y no hace falta terminal:
+Supabase guarda los datos y las fotos, Vercel corre la app, Claude lee los billetes.
+
+Calcula unos 20 minutos la primera vez.
 
 ---
 
-## Camino A — Verla hoy, desde la computadora del local (15 minutos, gratis)
+## 1. Supabase — la base de datos y las fotos
 
-El teléfono se conecta a la computadora por el WiFi del local. No hace falta
-contratar nada ni crear cuentas.
+### 1.1 Crear el proyecto
 
-### 1. Instalar Node.js
+En <https://supabase.com> → **New project**. Ponle un nombre (`dolares-por-caja`),
+elige la región más cercana y **guarda la contraseña de la base de datos**: se
+muestra una sola vez y la necesitas en el paso siguiente.
 
-Ve a <https://nodejs.org> y descarga la versión que dice **LTS**.
-Instalador siguiente-siguiente-siguiente. Es lo único que hay que instalar.
+### 1.2 Copiar la cadena de conexión
 
-### 2. Abrir la terminal
+**Project Settings → Database → Connection string.**
 
-- **Windows:** tecla Windows → escribe `powershell` → Enter.
-- **Mac:** Cmd + Espacio → escribe `terminal` → Enter.
+Elige la pestaña **Transaction** (puerto **6543**), no la de Session.
+Esto importa: Vercel abre y cierra procesos todo el tiempo, y solo el modo
+*transaction* del pooler aguanta ese patrón sin agotar las conexiones.
 
-Es una ventana negra donde se escriben comandos. Vas a copiar y pegar.
+Copia esa cadena y sustituye `[YOUR-PASSWORD]` por la contraseña del paso 1.1.
+Queda así:
 
-### 3. Bajar la app
+```
+postgresql://postgres.abcd1234:TU-CLAVE@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+```
 
-Pega esto y dale Enter (una línea a la vez):
+### 1.3 Crear el bucket de las fotos
+
+**Storage → New bucket:**
+
+- Nombre: `billetes`
+- **Public bucket: NO** (déjalo privado)
+
+Privado significa que las fotos de los billetes no quedan expuestas en internet.
+La app genera enlaces temporales firmados cada vez que hay que mostrar una.
+
+### 1.4 Copiar las claves de la API
+
+**Project Settings → API.** Necesitas dos cosas:
+
+- **Project URL** → `https://xxxx.supabase.co`
+- **service_role key** (la secreta, no la `anon`)
+
+> La `service_role` salta las reglas de seguridad de Supabase. Va **solo** en las
+> variables de entorno de Vercel, nunca en el navegador ni en un repositorio.
+> Aquí es correcto usarla porque quien controla el acceso es la propia app, con
+> sus usuarios y PIN.
+
+**No hace falta que crees las tablas**: la app las crea sola la primera vez que
+arranca. Si prefieres verlas antes, están en [`esquema.sql`](esquema.sql) y
+puedes pegarlo en el editor SQL de Supabase.
+
+---
+
+## 2. Claude — la clave que lee los billetes
+
+En <https://console.anthropic.com> → **API Keys** → **Create Key**.
+Empieza por `sk-ant-` y **solo se muestra una vez**.
+
+---
+
+## 3. Vercel — publicar la app
+
+1. En <https://vercel.com> → **Add New → Project** → importa el repositorio
+   `Dolares-por-caja`.
+2. En **Branch**, elige `claude/dollars-received-database-gxgmwh`.
+   (O primero haz merge de esa rama a `main` y déjalo en `main`.)
+3. **Framework Preset: Other.** No toques Build Command ni Output Directory:
+   `vercel.json` ya lo tiene resuelto.
+4. Despliega **Environment Variables** y añade estas cinco:
+
+   | Nombre | Valor |
+   |---|---|
+   | `DATABASE_URL` | la cadena del paso 1.2 (puerto 6543) |
+   | `SUPABASE_URL` | el Project URL del paso 1.4 |
+   | `SUPABASE_SERVICE_ROLE_KEY` | la clave `service_role` del paso 1.4 |
+   | `ANTHROPIC_API_KEY` | la clave del paso 2 |
+   | `PIN_ADMIN` | el PIN que quieras para entrar la primera vez |
+
+5. **Deploy.**
+
+Cuando termine te da una dirección `https://...vercel.app`. Ábrela y entra con
+usuario `admin` y el PIN que pusiste.
+
+---
+
+## 4. Lo primero que tienes que hacer dentro
+
+1. **Ajustes → Cambiar mi PIN.** El PIN inicial está en las variables de Vercel,
+   que ve cualquiera con acceso al proyecto.
+2. **Ajustes → Cajeras:** añade a todas.
+3. **Ajustes → Usuarios:** crea uno por cada persona que vaya a registrar fotos,
+   con su propio PIN. Así cada registro queda con nombre y apellido.
+
+### Instalarla en el teléfono
+
+Abre la dirección de Vercel en el teléfono:
+
+- **Android (Chrome):** menú ⋮ → *Instalar aplicación*.
+- **iPhone (Safari):** botón compartir → *Añadir a pantalla de inicio*.
+
+Queda con su icono y se abre a pantalla completa.
+
+---
+
+## Trabajar en local (opcional)
+
+Si quieres cambiar algo antes de subirlo:
 
 ```bash
 git clone https://github.com/pattialberto1/Dolares-por-caja.git
 cd Dolares-por-caja
 git checkout claude/dollars-received-database-gxgmwh
 npm install
-```
-
-`npm install` tarda un par de minutos. Es normal que salga mucho texto.
-
-> Si `git` no existe en tu computadora, bájalo de <https://git-scm.com> e
-> instálalo, o descarga el ZIP desde GitHub y descomprímelo.
-
-### 4. Poner la clave de Claude
-
-Entra a <https://console.anthropic.com> → **API Keys** → **Create Key**.
-Copia la clave (empieza por `sk-ant-`). **Solo se ve una vez.**
-
-En la carpeta de la app hay un archivo llamado `.env.example`. Haz una copia
-llamada `.env` y ábrela con el Bloc de notas. Cambia la línea de la clave:
-
-```
-ANTHROPIC_API_KEY=sk-ant-aqui-va-tu-clave
-```
-
-Guarda y cierra.
-
-### 5. Encenderla
-
-```bash
+cp .env.example .env      # rellena los valores
 npm start
 ```
 
-Te va a salir algo así:
+Recomendación: crea un **segundo proyecto en Supabase** para desarrollo. Si
+apuntas el `.env` local a la base de producción, cualquier prueba entra en los
+datos reales del local.
 
-```
-  ┌─────────────────────────────────────────────
-  │  Dólares por caja está funcionando
-  ├─────────────────────────────────────────────
-  │  En esta computadora:  http://localhost:3000
-  │  En el teléfono:       http://192.168.1.50:3000
-  └─────────────────────────────────────────────
-
-  Se creó el usuario "admin" con PIN 1234.
-```
-
-### 6. Abrirla en el teléfono
-
-Con el teléfono **en el mismo WiFi**, abre el navegador y escribe la dirección
-que dice **"En el teléfono"** (la tuya, no la del ejemplo). Entra con usuario
-`admin` y el PIN que aparece.
-
-**Lo primero que tienes que hacer:** Ajustes → cambia el PIN de admin, añade
-las cajeras y crea un usuario con su PIN para cada persona que vaya a registrar.
-
-### Si el teléfono no abre la página
-
-- **Windows te va a preguntar por el firewall** la primera vez. Dale *Permitir*.
-  Si ya le diste que no: Panel de control → Firewall → Permitir una aplicación →
-  busca Node.js y marca "Redes privadas".
-- Comprueba que el teléfono está en el mismo WiFi, no en datos móviles.
-- Mientras la ventana negra esté abierta, la app funciona. **Si la cierras, se
-  apaga.** Para volver a encenderla: abrir terminal, `cd Dolares-por-caja`, `npm start`.
-
-### Dos límites de este camino
-
-1. **Solo funciona dentro del local**, mientras la computadora esté encendida.
-2. **No se puede instalar como app** en la pantalla de inicio, porque eso exige
-   HTTPS. Se usa desde el navegador normal (guárdala en favoritos). Tomar fotos,
-   buscar y la cola sin conexión sí funcionan.
-
-Ambos se resuelven con el camino B.
-
----
-
-## Camino B — Que funcione siempre y desde cualquier lugar
-
-Aquí la app vive en internet: los teléfonos entran desde donde sea, no depende
-de que la computadora del local esté encendida, y sí se instala como app.
-
-### Opción rápida: Railway (sin terminal, ~5 USD/mes)
-
-1. Entra a <https://railway.app> y crea la cuenta con tu GitHub.
-2. **New Project → Deploy from GitHub repo →** elige `Dolares-por-caja`.
-3. En **Settings → Branch**, selecciona `claude/dollars-received-database-gxgmwh`.
-4. En **Variables**, añade:
-   - `ANTHROPIC_API_KEY` = tu clave
-   - `PIN_ADMIN` = el PIN que quieras
-   - `COOKIE_SEGURA` = `1`
-5. **Importante:** en **Settings → Volumes**, añade un volumen montado en `/datos`.
-   Sin esto se pierden la base de datos y las fotos en cada actualización.
-6. En **Settings → Networking → Generate Domain**. Esa dirección `https://...` es
-   la que abren los teléfonos.
-
-Render funciona casi igual (New → Web Service → Docker, y un Disk en `/datos`).
-
-### Opción sólida: un VPS propio (~5 USD/mes)
-
-Un servidor en Hetzner, DigitalOcean o Contabo, con Docker. Es lo que yo
-recomiendo si esto se va a volver parte del día a día: los datos son tuyos y no
-dependes de la política de nadie. Los comandos están en el README.
-
-### Instalar como app en el teléfono
-
-Con la dirección `https://` ya funcionando, abre esa página en el teléfono:
-
-- **Android (Chrome):** menú ⋮ → *Instalar aplicación*.
-- **iPhone (Safari):** botón compartir → *Añadir a pantalla de inicio*.
-
-Queda con su icono, se abre a pantalla completa y arranca al instante.
-
----
-
-## Probarla sin gastar saldo
-
-Para enseñarle la app al personal sin consumir la API, pon esto en el `.env`:
+Para trastear sin gastar saldo de la API, pon en el `.env`:
 
 ```
 SIMULAR_LECTURA=1
 ```
 
-La app inventa los seriales en vez de mandar las fotos a Claude. Cuando quieras
-usarla de verdad, cámbialo a `0`.
+Y para correr las pruebas (crean su propio esquema temporal y lo borran al
+terminar, no tocan tus tablas):
+
+```bash
+DATABASE_URL_PRUEBA="postgresql://..." npm run prueba
+```
+
+---
+
+## Qué cuesta esto al mes
+
+| | Gratis hasta | Después |
+|---|---|---|
+| **Vercel** (Hobby) | uso personal, suficiente para esto | $20/mes (Pro) |
+| **Supabase** (Free) | 500 MB de base + 1 GB de fotos | $25/mes (Pro, 8 GB + 100 GB) |
+| **Claude API** | — se paga por uso | ~$0,025 por foto con `claude-opus-5` |
+
+Las fotos ocupan ~350 KB cada una, así que **1 GB gratis ≈ 3.000 fotos**. A 100
+fotos diarias eso es un mes. Cuando se acerque, o pasas Supabase a Pro, o
+borras las fotos viejas (los seriales y las cajeras quedan igual en la base:
+lo que se pierde es poder ver la imagen del billete).
+
+El gasto real de Claude lo ves medido en la pestaña **Reportes**.
+
+---
+
+## Si algo falla
+
+**"Falta DATABASE_URL"** — la variable no llegó a Vercel. Revisa que esté en
+Settings → Environment Variables y **vuelve a desplegar**: Vercel no aplica
+variables nuevas a un despliegue ya hecho.
+
+**"too many connections" o timeouts raros** — estás usando el puerto 5432
+(conexión directa) en vez del 6543 (pooler en modo transaction). Cámbialo.
+
+**La foto se sube pero sale "error" al leer** — mira los logs en Vercel →
+Deployments → el último → Functions. Casi siempre es la `ANTHROPIC_API_KEY` mal
+copiada o sin saldo en la cuenta.
+
+**La lectura tarda y se corta** — el límite de la función está en 60 segundos
+(`vercel.json`). Si tus fotos son muy grandes, baja `MAX_LADO_PX` a 1400.
+
+**Las fotos no se ven** — el bucket tiene que llamarse `billetes` (o lo que
+pongas en `BUCKET_FOTOS`) y la clave debe ser la `service_role`, no la `anon`.

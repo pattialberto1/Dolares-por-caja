@@ -1,20 +1,39 @@
 'use strict';
 
 /**
- * Prueba de humo: levanta el servidor con la lectura simulada, crea una cajera,
- * sube dos fotos y comprueba que la búsqueda por serial devuelve la cajera.
- * Uso:  node pruebas/humo.js
+ * Prueba de humo de punta a punta contra un Postgres real.
+ *
+ * Crea un esquema temporal propio, levanta el servidor con la lectura de
+ * billetes y el almacén simulados, sube fotos y comprueba que la búsqueda por
+ * serial devuelve la cajera correcta. Al terminar borra el esquema.
+ *
+ *   DATABASE_URL_PRUEBA=postgresql://... node pruebas/humo.js
+ *
+ * Si no se define, usa DATABASE_URL. Nunca toca las tablas existentes: todo
+ * ocurre dentro de un esquema aparte.
  */
 
-const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { Client } = require('pg');
 const sharp = require('sharp');
 
-const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dolares-prueba-'));
+const URL_BD = process.env.DATABASE_URL_PRUEBA || process.env.DATABASE_URL;
+if (!URL_BD) {
+  console.error('\nFalta DATABASE_URL_PRUEBA (o DATABASE_URL) para correr las pruebas.\n');
+  process.exit(1);
+}
+
+const ESQUEMA = 'prueba_' + Math.random().toString(36).slice(2, 10);
 const PUERTO = 3999;
 const BASE = `http://127.0.0.1:${PUERTO}`;
+const SSL = /supabase|amazonaws|render|neon/.test(URL_BD) ? { rejectUnauthorized: false } : false;
+
+async function conBd(sql) {
+  const c = new Client({ connectionString: URL_BD, ssl: SSL });
+  await c.connect();
+  try { return await c.query(sql); } finally { await c.end(); }
+}
 
 let fallos = 0;
 function comprobar(descripcion, condicion, detalle) {
@@ -49,16 +68,33 @@ async function fotoFalsa(texto) {
 }
 
 async function subir(buffer, cajeraId, nota) {
+  const mini = await sharp(buffer).resize({ width: 360 }).jpeg().toBuffer();
   const form = new FormData();
   form.append('foto', new Blob([buffer], { type: 'image/jpeg' }), 'billete.jpg');
+  form.append('mini', new Blob([mini], { type: 'image/jpeg' }), 'mini.jpg');
   form.append('cajera_id', String(cajeraId));
   form.append('nota', nota);
   return pedir('/api/capturas', { method: 'POST', body: form });
 }
 
 (async () => {
+  await conBd(`CREATE SCHEMA "${ESQUEMA}"`);
+
+  // search_path apunta al esquema temporal; public queda intacto salvo por las
+  // extensiones, que son compartidas y se crean con IF NOT EXISTS.
+  const url = new URL(URL_BD);
+  url.searchParams.set('options', `-c search_path=${ESQUEMA},public`);
+
   const servidor = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'server.js')], {
-    env: { ...process.env, DIR_DATOS: DIR, PUERTO: String(PUERTO), SIMULAR_LECTURA: '1', PIN_ADMIN: '9999' },
+    env: {
+      ...process.env,
+      DATABASE_URL: url.toString(),
+      PUERTO: String(PUERTO),
+      SIMULAR_LECTURA: '1',
+      SIMULAR_ALMACEN: '1',
+      COOKIE_SEGURA: '0',
+      PIN_ADMIN: '9999',
+    },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
 
@@ -93,6 +129,8 @@ async function subir(buffer, cajeraId, nota) {
     const subidaB = await subir(fotoB, otra.datos.cajera.id, '');
     comprobar('una segunda foto sí entra', subidaB.datos.repetida === false && subidaB.datos.captura.billetes.length === 1);
 
+    comprobar('la captura devuelve enlace a la foto', typeof subidaA.datos.captura.url_foto === 'string', subidaA.datos.captura.url_foto);
+
     console.log('\nBúsqueda');
     const serial = subidaA.datos.captura.billetes[0].serial_norm;
     const exacta = await pedir('/api/billetes/buscar?q=' + serial);
@@ -108,7 +146,7 @@ async function subir(buffer, cajeraId, nota) {
     const billeteId = subidaB.datos.captura.billetes[0].id;
     const corregido = await pedirJson('/api/billetes/' + billeteId, 'PATCH', { serial: 'PL 11112222 C', denominacion: 100 });
     comprobar('se corrige el serial a mano', corregido.datos.billete?.serial_norm === 'PL11112222C', corregido.datos);
-    comprobar('el corregido queda marcado como verificado', corregido.datos.billete.verificado === 1);
+    comprobar('el corregido queda marcado como verificado', corregido.datos.billete.verificado === true);
     comprobar('se busca por el serial corregido', (await pedir('/api/billetes/buscar?q=PL11112222C')).datos.exactos.length === 1);
 
     console.log('\nSeriales repetidos');
@@ -123,6 +161,14 @@ async function subir(buffer, cajeraId, nota) {
       (await pedir('/api/billetes/' + idRepetido, { method: 'DELETE' })).estado === 200);
     const reproceso = await pedir(`/api/capturas/${subidaA.datos.captura.id}/reprocesar`, { method: 'POST' });
     comprobar('se vuelve a leer una captura', reproceso.datos.captura?.billetes?.length === 1, reproceso.datos);
+
+    const desactivada = await pedirJson('/api/cajeras/' + otra.datos.cajera.id, 'PATCH', { activa: false });
+    comprobar('se desactiva una cajera', desactivada.datos.cajera?.activa === false, desactivada.datos);
+    comprobar('una cajera desactivada no sale en la lista normal',
+      !(await pedir('/api/cajeras')).datos.cajeras.some((c) => c.id === otra.datos.cajera.id));
+    comprobar('sí sale pidiendo todas',
+      (await pedir('/api/cajeras?todas=1')).datos.cajeras.some((c) => c.id === otra.datos.cajera.id));
+    await pedirJson('/api/cajeras/' + otra.datos.cajera.id, 'PATCH', { activa: true });
 
     console.log('\nReportes');
     const resumen = await pedir('/api/reportes/resumen');
@@ -142,7 +188,7 @@ async function subir(buffer, cajeraId, nota) {
     console.log(fallos === 0 ? '\n✅ Todas las comprobaciones pasaron.\n' : `\n❌ ${fallos} comprobación(es) fallaron.\n`);
   } finally {
     servidor.kill();
-    fs.rmSync(DIR, { recursive: true, force: true });
+    await conBd(`DROP SCHEMA IF EXISTS "${ESQUEMA}" CASCADE`).catch(() => {});
   }
   process.exit(fallos === 0 ? 0 : 1);
 })();

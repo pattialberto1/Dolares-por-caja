@@ -1,4 +1,5 @@
 node_modules/
-datos/
 .env
+.env*.local
+.vercel
 *.log

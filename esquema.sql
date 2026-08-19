@@ -1,55 +1,7 @@
-'use strict';
+-- Esquema de "Dólares por caja".
+-- La app lo crea sola en el primer arranque; este archivo está aquí para que
+-- puedas revisarlo o aplicarlo a mano desde el editor SQL de Supabase.
 
-const { Pool } = require('pg');
-
-const URL_BD = process.env.DATABASE_URL;
-if (!URL_BD) {
-  throw new Error(
-    'Falta DATABASE_URL. Cópiala de Supabase → Project Settings → Database → Connection string (modo "Transaction", puerto 6543).'
-  );
-}
-
-// En Vercel cada invocación es un proceso corto: pocas conexiones y que se
-// suelten rápido. Supabase exige TLS pero con certificado propio.
-const pool = new Pool({
-  connectionString: URL_BD,
-  max: Number(process.env.MAX_CONEXIONES) || 3,
-  idleTimeoutMillis: 10000,
-  connectionTimeoutMillis: 10000,
-  ssl: /supabase|amazonaws|render|neon/.test(URL_BD) ? { rejectUnauthorized: false } : false,
-});
-
-pool.on('error', (err) => console.error('Error inesperado en el pool de Postgres:', err.message));
-
-/** Ejecuta una consulta y devuelve las filas. */
-async function consultar(sql, valores = []) {
-  const r = await pool.query(sql, valores);
-  return r.rows;
-}
-
-/** Ejecuta una consulta y devuelve la primera fila (o null). */
-async function unaFila(sql, valores = []) {
-  const filas = await consultar(sql, valores);
-  return filas[0] || null;
-}
-
-/** Corre varias consultas dentro de una transacción. */
-async function enTransaccion(fn) {
-  const cliente = await pool.connect();
-  try {
-    await cliente.query('BEGIN');
-    const resultado = await fn(cliente);
-    await cliente.query('COMMIT');
-    return resultado;
-  } catch (err) {
-    await cliente.query('ROLLBACK');
-    throw err;
-  } finally {
-    cliente.release();
-  }
-}
-
-const ESQUEMA = `
 CREATE TABLE IF NOT EXISTS cajeras (
   id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   nombre     text NOT NULL UNIQUE,
@@ -116,38 +68,3 @@ CREATE INDEX IF NOT EXISTS idx_sesiones_expira ON sesiones (expira_en);
 -- Para que buscar un pedazo del serial (LIKE '%1234%') no recorra toda la tabla.
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE INDEX IF NOT EXISTS idx_billetes_serial_trgm ON billetes USING gin (serial_norm gin_trgm_ops);
-`;
-
-let migracion = null;
-
-/**
- * Crea las tablas si no existen. Se ejecuta una sola vez por proceso y bajo un
- * lock, para que dos arranques simultáneos en Vercel no choquen entre sí.
- */
-function prepararEsquema() {
-  if (!migracion) {
-    migracion = (async () => {
-      const cliente = await pool.connect();
-      try {
-        await cliente.query('SELECT pg_advisory_lock(hashtext($1))', ['dolares_por_caja']);
-        await cliente.query(ESQUEMA);
-      } finally {
-        await cliente.query('SELECT pg_advisory_unlock(hashtext($1))', ['dolares_por_caja']).catch(() => {});
-        cliente.release();
-      }
-    })().catch((err) => {
-      migracion = null; // que el siguiente intento lo vuelva a probar
-      throw err;
-    });
-  }
-  return migracion;
-}
-
-/** Normaliza un serial para búsqueda: mayúsculas, sin espacios ni signos. */
-function normalizarSerial(s) {
-  return String(s || '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '');
-}
-
-module.exports = { pool, consultar, unaFila, enTransaccion, prepararEsquema, normalizarSerial, ESQUEMA };

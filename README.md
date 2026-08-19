@@ -5,7 +5,7 @@ La cajera fotografía el billete, la app **lee el número de serie con Claude** 
 guarda. Después, buscando ese serial, la app dice **de qué cajera era y qué día entró**.
 
 Funciona en teléfono y en computadora: es una página web que se instala como app
-(PWA). Un solo servidor, una sola base de datos, todos ven lo mismo.
+(PWA). Corre sobre **Vercel + Supabase**, el mismo stack de la app de delivery.
 
 ---
 
@@ -21,85 +21,39 @@ Funciona en teléfono y en computadora: es una página web que se instala como a
 | **Sin señal** | Si no hay internet, la foto queda guardada en el teléfono y se envía sola cuando vuelve la conexión. |
 | **Corregir a mano** | Si Claude leyó mal un dígito, se corrige con el lápiz ✏️ y queda marcado como verificado. |
 
-> **¿No eres programador o no sabes por dónde empezar?**
-> Lee **[EMPEZAR.md](EMPEZAR.md)**: está escrito paso a paso, desde instalar
-> Node.js hasta abrir la app en el teléfono.
-
 ---
 
 ## Puesta en marcha
 
-### 1. Conseguir la clave de la API
+**→ Los pasos completos están en [EMPEZAR.md](EMPEZAR.md)**: crear el proyecto de
+Supabase, el bucket de fotos, las claves y el despliegue en Vercel.
 
-En <https://console.anthropic.com> → **API Keys** → crear una clave. Empieza por `sk-ant-`.
+Resumen para quien ya conoce el stack:
 
-### 2. Instalar
+1. **Supabase:** proyecto nuevo + bucket privado `billetes`. Las tablas las crea
+   la app sola en el primer arranque (o pega [`esquema.sql`](esquema.sql)).
+2. **Vercel:** importa el repositorio, preset *Other*, y añade cinco variables:
+   `DATABASE_URL` (pooler en modo **transaction**, puerto 6543),
+   `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `PIN_ADMIN`.
+3. Entra con `admin`, cambia el PIN, añade las cajeras y los usuarios.
+
+En local:
 
 ```bash
-git clone <este-repositorio>
-cd Dolares-por-caja
 npm install
-cp .env.example .env
-```
-
-Abre `.env` y pega tu clave en `ANTHROPIC_API_KEY`. Cambia también `PIN_ADMIN`.
-
-### 3. Arrancar
-
-```bash
+cp .env.example .env   # rellena los valores
 npm start
 ```
 
-Abre <http://localhost:3000>, entra con usuario `admin` y el PIN que pusiste.
-
-**Lo primero:** ve a **Ajustes** → añade las cajeras y crea un usuario para cada
-persona que vaya a registrar fotos. Cambia el PIN de `admin`.
-
-### Probar sin gastar
-
-Poniendo `SIMULAR_LECTURA=1` en el `.env`, la app inventa los seriales en vez de
-llamar a la API. Sirve para enseñarle la app al personal sin consumir saldo.
+Con `SIMULAR_LECTURA=1` la app inventa los seriales sin llamar a la API: sirve
+para enseñársela al personal sin gastar saldo.
 
 ```bash
-npm run prueba    # prueba automática de punta a punta (usa el modo simulado)
+DATABASE_URL_PRUEBA="postgresql://..." npm run prueba
 ```
 
----
-
-## Ponerla en línea (para que se use desde los teléfonos)
-
-Tres opciones, de menos a más:
-
-**a) Servidor propio en el local.** Deja la app corriendo en la computadora del
-local y los teléfonos entran por la red WiFi a `http://<ip-de-la-pc>:3000`.
-Gratis, pero solo funciona dentro del local.
-
-**b) Un VPS pequeño** (DigitalOcean, Hetzner, Contabo — entre 4 y 6 USD al mes).
-Es la opción recomendada: funciona desde cualquier lugar y los datos son tuyos.
-
-```bash
-# en el VPS, con Docker instalado
-export ANTHROPIC_API_KEY=sk-ant-...
-docker compose up -d
-```
-
-Después pon un dominio con HTTPS delante (Caddy o Nginx) y cambia `COOKIE_SEGURA=1`.
-Con Caddy son dos líneas:
-
-```
-dolares.tudominio.com {
-    reverse_proxy localhost:3000
-}
-```
-
-**c) Plataformas tipo Railway, Render o Fly.io.** Suben el Dockerfile directo.
-Ojo: hay que montar un disco persistente en `/datos`, si no se pierden la base
-de datos y las fotos en cada despliegue.
-
-### Instalarla como app en el teléfono
-
-Abre la dirección en Chrome (Android) o Safari (iPhone) → menú →
-**"Añadir a pantalla de inicio"**. Queda con su icono, como cualquier otra app.
+La prueba crea su propio esquema temporal y lo borra al terminar, así que se
+puede correr contra la misma base sin tocar los datos reales.
 
 ---
 
@@ -116,6 +70,10 @@ Cálculo aproximado por foto y al mes con **100 fotos diarias**:
 
 Son estimaciones. **El gasto real medido lo muestra la pestaña Reportes**, sumado
 del consumo que devuelve la propia API en cada foto.
+
+A esto se le suma la infraestructura: **Vercel Hobby y Supabase Free salen $0**
+hasta 1 GB de fotos (unas 3.000, poco más de un mes a 100 diarias). Después,
+Supabase Pro son $25/mes por 100 GB.
 
 Dos formas de gastar menos sin cambiar de modelo:
 - Bajar `MAX_LADO_PX` de 1800 a 1400: cuesta como un 40 % menos, pero lee peor los
@@ -144,31 +102,44 @@ mano en el momento con el lápiz ✏️.
 ## Cómo está hecho
 
 ```
+api/index.js         Punto de entrada en Vercel (todo /api/* pasa por aquí)
+vercel.json          Rewrites y límite de 60 s por función
 src/
-  server.js          Servidor Express, sesiones y arranque
-  db.js              SQLite: tablas de cajeras, usuarios, capturas y billetes
-  claude.js          Lectura de los billetes con Claude (visión + salida estructurada)
+  app.js             La aplicación Express: sesiones, rutas y errores
+  server.js          Arranque para desarrollo local (en Vercel no se usa)
+  db.js              Postgres: pool, transacciones y creación del esquema
+  almacen.js         Fotos en Supabase Storage y enlaces firmados
+  claude.js          Lectura de los billetes (visión + salida estructurada)
   auth.js            PIN con scrypt y sesiones en cookie
   rutas/
     capturas.js      Subida de fotos, procesado y reintento
     billetes.js      Búsqueda, corrección manual y seriales repetidos
     admin.js         Cajeras y usuarios
     reportes.js      Resúmenes y exportación a CSV
-publico/             La app (HTML + CSS + JavaScript, sin frameworks)
-pruebas/humo.js      Prueba de punta a punta
+public/              La app (HTML + CSS + JavaScript, sin frameworks)
+esquema.sql          Las tablas, por si prefieres crearlas a mano
+pruebas/humo.js      Prueba de punta a punta contra un Postgres real
 ```
 
-**Base de datos:** SQLite, un solo archivo en `datos/dolares.db`. Aguanta de sobra
-el volumen de un local (millones de billetes). Las fotos van en `datos/fotos/`.
+**Base de datos:** Postgres en Supabase. Los seriales llevan un índice trigram,
+así que buscar un pedazo (`LIKE '%1234%'`) no recorre la tabla entera.
+
+**Fotos:** bucket privado en Supabase Storage. La app entrega enlaces firmados
+que caducan a la hora; sin sesión no se ve ninguna imagen.
+
+**Las miniaturas las genera el teléfono**, no el servidor. Por eso la app no
+necesita procesar imágenes en el backend: las listas cargan con muy pocos datos
+y la función serverless se mantiene ligera.
 
 **Modelo:** `claude-opus-5` con salida estructurada (JSON validado con Zod), así
 la respuesta siempre trae los mismos campos y nunca hay que interpretar texto libre.
 
-**Copia de seguridad:** con copiar la carpeta `datos/` completa es suficiente.
+**Copia de seguridad:** Supabase hace copias automáticas del Postgres. Las fotos
+del bucket conviene bajarlas aparte de vez en cuando.
 
-```bash
-tar czf respaldo-$(date +%F).tar.gz datos/
-```
+> Si algún día quieres esto sin depender de servicios externos, la versión
+> anterior —SQLite en un archivo, fotos en disco, todo en un solo servidor— está
+> en el historial, en el commit `c2e8602`.
 
 ---
 

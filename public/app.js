@@ -33,7 +33,7 @@ let cajeras = [];
 
 /* ----------------------------------------------- redimensionar en el móvil */
 // Encoger antes de subir ahorra datos y hace la subida viable con señal mala.
-function encoger(archivo, maxLado = 1800) {
+function encoger(archivo, maxLado = 1800, calidad = 0.85) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -42,12 +42,19 @@ function encoger(archivo, maxLado = 1800) {
       lienzo.width = Math.round(img.width * escala);
       lienzo.height = Math.round(img.height * escala);
       lienzo.getContext('2d').drawImage(img, 0, 0, lienzo.width, lienzo.height);
-      lienzo.toBlob((b) => (b ? resolve(b) : reject(new Error('No se pudo procesar la imagen.'))), 'image/jpeg', 0.85);
+      lienzo.toBlob((b) => (b ? resolve(b) : reject(new Error('No se pudo procesar la imagen.'))), 'image/jpeg', calidad);
       URL.revokeObjectURL(img.src);
     };
     img.onerror = () => reject(new Error('No se pudo leer la imagen.'));
     img.src = URL.createObjectURL(archivo);
   });
+}
+
+// La miniatura se genera aquí y no en el servidor: así las listas y las
+// búsquedas cargan con muy pocos datos, algo que se agradece en el celular.
+async function prepararFoto(archivo) {
+  const [grande, mini] = await Promise.all([encoger(archivo, 1800), encoger(archivo, 360, 0.7)]);
+  return { grande, mini };
 }
 
 /* ------------------------------------------------------ cola sin conexión */
@@ -88,7 +95,7 @@ async function vaciarCola({ silencioso = false } = {}) {
   let enviadas = 0;
   for (const p of pendientes) {
     try {
-      const captura = await subirFoto(p.blob, p.cajera_id, p.nota);
+      const captura = await subirFoto({ grande: p.blob, mini: p.mini }, p.cajera_id, p.nota);
       await sacarDeCola(p.id);
       enviadas++;
       pintarCaptura(captura, true);
@@ -101,9 +108,10 @@ async function vaciarCola({ silencioso = false } = {}) {
 }
 
 /* --------------------------------------------------------------- registrar */
-async function subirFoto(blob, cajeraId, nota) {
+async function subirFoto({ grande, mini }, cajeraId, nota) {
   const form = new FormData();
-  form.append('foto', blob, 'billete.jpg');
+  form.append('foto', grande, 'billete.jpg');
+  if (mini) form.append('mini', mini, 'billete_mini.jpg');
   form.append('cajera_id', cajeraId);
   form.append('nota', nota || '');
   const datos = await api('/api/capturas', { method: 'POST', body: form });
@@ -121,14 +129,18 @@ async function manejarArchivos(archivos) {
   for (const archivo of archivos) {
     const marcador = pintarCargando(cajeraNombre);
     try {
-      const blob = await encoger(archivo);
+      const imagenes = await prepararFoto(archivo);
       try {
-        const captura = await subirFoto(blob, cajeraId, nota);
+        const captura = await subirFoto(imagenes, cajeraId, nota);
         marcador.remove();
         pintarCaptura(captura, true);
       } catch (err) {
         if (!navigator.onLine || /fetch|network|failed/i.test(err.message)) {
-          await encolar({ blob, cajera_id: cajeraId, cajera_nombre: cajeraNombre, nota, creado: new Date().toISOString() });
+          await encolar({
+            blob: imagenes.grande, mini: imagenes.mini,
+            cajera_id: cajeraId, cajera_nombre: cajeraNombre, nota,
+            creado: new Date().toISOString(),
+          });
           marcador.remove();
           await pintarCola();
           avisar('Sin conexión: la foto quedó guardada y se enviará sola.');
@@ -163,7 +175,7 @@ function filaBillete(b, conFoto = false) {
   const repetido = b.duplicado_de || b.repeticiones > 0;
   return `
     <div class="billete" data-billete="${b.id}">
-      ${conFoto && b.miniatura ? `<img src="/fotos/${esc(b.miniatura)}" alt="">` : ''}
+      ${conFoto && b.url_mini ? `<img src="${esc(b.url_mini)}" alt="" loading="lazy">` : ''}
       <div class="datos">
         <div class="serial">${esc(b.serial || '(sin leer)')}</div>
         <div class="tenue pequeno">
@@ -195,7 +207,7 @@ function pintarCaptura(captura, alPrincipio = false) {
     <div class="contenedor-billetes" style="margin-top:.6rem">${captura.billetes.map((b) => filaBillete(b)).join('') || '<p class="tenue">No se detectó ningún billete en la foto.</p>'}</div>
     <div class="fila" style="margin-top:.5rem">
       <button class="secundario agregar" data-captura="${captura.id}" data-cajera="${captura.cajera_id}">+ Añadir billete a mano</button>
-      <a href="/fotos/${esc(captura.archivo)}" target="_blank" class="tenue pequeno" style="flex:0;white-space:nowrap">Ver foto</a>
+      ${captura.url_foto ? `<a href="${esc(captura.url_foto)}" target="_blank" rel="noopener" class="tenue pequeno" style="flex:0;white-space:nowrap">Ver foto</a>` : ''}
     </div>`;
   if (alPrincipio) $('#resultados').prepend(div);
   return div;
@@ -223,7 +235,7 @@ function tarjetaResultado(b) {
   const repetido = b.repeticiones > 0 || b.duplicado_de;
   return `
     <div class="resultado">
-      ${b.miniatura ? `<a href="/fotos/${esc(b.archivo)}" target="_blank"><img src="/fotos/${esc(b.miniatura)}" alt="foto del billete"></a>` : ''}
+      ${b.url_mini ? `<a href="${esc(b.url_foto || b.url_mini)}" target="_blank" rel="noopener"><img src="${esc(b.url_mini)}" alt="foto del billete" loading="lazy"></a>` : ''}
       <div class="datos">
         <div class="tenue pequeno">Recibido por</div>
         <div class="cajera-grande">${esc(b.cajera)}</div>
@@ -274,7 +286,7 @@ async function cargarHistorial() {
     ? `<div class="tarjeta">${capturas
         .map(
           (c) => `<div class="billete" data-abrir="${c.id}">
-            ${c.miniatura ? `<img src="/fotos/${esc(c.miniatura)}" alt="">` : ''}
+            ${c.url_mini ? `<img src="${esc(c.url_mini)}" alt="" loading="lazy">` : ''}
             <div class="datos">
               <strong>${esc(c.cajera)}</strong> · ${c.n_billetes} billete(s) · ${dinero(c.monto)}
               <div class="tenue pequeno">${fecha(c.recibida_en)}${c.nota ? ' · ' + esc(c.nota) : ''}</div>
@@ -474,7 +486,8 @@ document.addEventListener('click', async (e) => {
 
   const alternar = e.target.closest('.alternar-cajera');
   if (alternar) {
-    await apiJson('/api/cajeras/' + alternar.dataset.id, 'PATCH', { activa: alternar.dataset.activa === '1' ? 0 : 1 });
+    const estabaActiva = alternar.dataset.activa === 'true';
+    await apiJson('/api/cajeras/' + alternar.dataset.id, 'PATCH', { activa: !estabaActiva });
     await cargarAjustes(); await cargarCajeras();
     return;
   }

@@ -16,7 +16,10 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/fotos/')) return;
+  // Solo el armazón propio: nunca la API ni las fotos firmadas de Supabase
+  // (sus enlaces caducan, cachearlos daría imágenes rotas).
+  if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return;
   e.respondWith(
     fetch(e.request)
       .then((r) => {
