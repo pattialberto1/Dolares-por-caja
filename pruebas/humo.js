@@ -188,6 +188,28 @@ async function subir(buffer, cajeraId, nota) {
     comprobar('una cajera inválida se rechaza',
       (await pedirJson('/api/capturas/' + capturaB.id, 'PATCH', { cajera_id: 99999 })).estado === 400);
 
+    console.log('\nHistorial ordenado y filtrable');
+    const hist = await pedir('/api/capturas?limite=50');
+    const fechas = hist.datos.capturas.map((c) => new Date(c.recibida_en).getTime());
+    comprobar('viene de la más reciente a la más antigua',
+      fechas.every((f, i) => i === 0 || fechas[i - 1] >= f), fechas);
+    comprobar('dice si quedan más páginas', typeof hist.datos.hay_mas === 'boolean');
+
+    const hoy = new Date().toISOString().slice(0, 10);
+    comprobar('filtrando por hoy salen las de hoy',
+      (await pedir('/api/capturas?desde=' + hoy + '&hasta=' + hoy)).datos.capturas.length === hist.datos.capturas.length);
+    comprobar('filtrando por un día pasado no sale ninguna',
+      (await pedir('/api/capturas?desde=2020-01-01&hasta=2020-01-02')).datos.capturas.length === 0);
+    comprobar('filtrando por cajera solo salen las suyas',
+      (await pedir('/api/capturas?cajera_id=' + cajera.datos.cajera.id)).datos.capturas
+        .every((c) => c.cajera === 'María'));
+
+    const pagina1 = await pedir('/api/capturas?limite=1');
+    const pagina2 = await pedir('/api/capturas?limite=1&offset=1');
+    comprobar('la paginación no repite la misma foto',
+      pagina1.datos.capturas[0].id !== pagina2.datos.capturas[0].id, [pagina1.datos.capturas[0]?.id, pagina2.datos.capturas[0]?.id]);
+    comprobar('y avisa de que hay más', pagina1.datos.hay_mas === true);
+
     console.log('\nReportes');
     const resumen = await pedir('/api/reportes/resumen');
     comprobar('el resumen suma por cajera', resumen.datos.por_cajera?.length === 2, resumen.datos);

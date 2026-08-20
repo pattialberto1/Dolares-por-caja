@@ -93,7 +93,18 @@
 
     <!-- HISTORIAL -->
     <section id="vista-historial" class="vista oculto">
+      <div class="tarjeta">
+        <div class="fila">
+          <label>Desde<input id="h-desde" type="date"></label>
+          <label>Hasta<input id="h-hasta" type="date"></label>
+        </div>
+        <div class="fila" style="margin-top:.5rem">
+          <label>Cajera<select id="h-cajera"></select></label>
+          <button id="h-limpiar" class="secundario" style="flex:0">Ver todo</button>
+        </div>
+      </div>
       <div id="lista-historial"></div>
+      <button id="h-mas" class="secundario ancho oculto">Ver fotos más antiguas</button>
     </section>
 
     <!-- REPORTES -->

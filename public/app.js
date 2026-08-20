@@ -5,6 +5,12 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const dinero = (n) => '$' + Number(n || 0).toLocaleString('es-VE');
+const hora = (s) => {
+  if (!s) return '';
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('es-VE', { hour: 'numeric', minute: '2-digit' });
+};
+
 // Postgres entrega las fechas ya en ISO 8601 con zona horaria.
 const fecha = (s) => {
   if (!s) return '';
@@ -401,12 +407,12 @@ async function buscar() {
 /* --------------------------------------------------------------- historial */
 function filaHistorial(c) {
   return `
-    <div data-fila="${c.id}">
+    <div data-fila="${c.id}" data-billetes="${c.n_billetes}" data-monto="${c.monto}">
       <div class="billete" data-abrir="${c.id}" style="cursor:pointer">
         ${c.url_mini ? `<img src="${esc(c.url_mini)}" alt="" loading="lazy">` : ''}
         <div class="datos">
           <strong data-cajera-fila>${esc(c.cajera)}</strong> · <span data-resumen-fila>${c.n_billetes} billete(s) · ${dinero(c.monto)}</span>
-          <div class="tenue pequeno">${fecha(c.recibida_en)}${c.nota ? ' · ' + esc(c.nota) : ''}</div>
+          <div class="tenue pequeno">${hora(c.recibida_en)}${c.nota ? ' · ' + esc(c.nota) : ''}</div>
           ${c.estado !== 'procesada' ? `<span class="chip ${c.estado === 'error' ? 'mal' : 'alerta'}">${esc(c.estado)}</span>` : ''}
         </div>
         <span class="tenue" data-flecha>▾</span>
@@ -415,12 +421,104 @@ function filaHistorial(c) {
     </div>`;
 }
 
-async function cargarHistorial() {
-  $('#lista-historial').innerHTML = '<div class="tarjeta"><p class="cargando">Cargando…</p></div>';
-  const { capturas } = await api('/api/capturas?limite=50');
-  $('#lista-historial').innerHTML = capturas.length
-    ? `<div class="tarjeta">${capturas.map(filaHistorial).join('')}</div>`
-    : '<div class="tarjeta"><p class="tenue">Todavía no hay fotos registradas.</p></div>';
+/** Día de una fecha en horario local, como "2026-08-19". */
+function claveDia(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('sv-SE'); // sv-SE da AAAA-MM-DD
+}
+
+/** "Hoy", "Ayer" o "martes, 19 de agosto". */
+function nombreDia(clave) {
+  const hoy = new Date().toLocaleDateString('sv-SE');
+  const ayer = new Date(Date.now() - 864e5).toLocaleDateString('sv-SE');
+  if (clave === hoy) return 'Hoy';
+  if (clave === ayer) return 'Ayer';
+  const [a, m, d] = clave.split('-').map(Number);
+  return new Date(a, m - 1, d).toLocaleDateString('es-VE', {
+    weekday: 'long', day: 'numeric', month: 'long',
+    ...(a !== new Date().getFullYear() ? { year: 'numeric' } : {}),
+  });
+}
+
+/** Agrupa las capturas por día, conservando el orden que llega del servidor. */
+function porDias(capturas) {
+  const dias = new Map();
+  for (const c of capturas) {
+    const clave = claveDia(c.recibida_en);
+    if (!dias.has(clave)) dias.set(clave, []);
+    dias.get(clave).push(c);
+  }
+  return dias;
+}
+
+function bloqueDia(clave, capturas) {
+  const billetes = capturas.reduce((t, c) => t + c.n_billetes, 0);
+  const monto = capturas.reduce((t, c) => t + c.monto, 0);
+  return `
+    <div class="dia">
+      <h3 data-clave="${esc(clave)}">${esc(nombreDia(clave))}</h3>
+      <span class="total">${capturas.length} foto${capturas.length === 1 ? '' : 's'} · ${billetes} billete${billetes === 1 ? '' : 's'} · ${dinero(monto)}</span>
+    </div>
+    <div class="tarjeta">${capturas.map(filaHistorial).join('')}</div>`;
+}
+
+/** Recalcula el total de una cabecera de día a partir de sus filas. */
+function actualizarTotalDia(cabecera) {
+  const tarjeta = cabecera?.nextElementSibling;
+  const total = cabecera?.querySelector('.total');
+  if (!tarjeta || !total) return;
+
+  const filas = [...tarjeta.querySelectorAll('[data-fila]')];
+  const billetes = filas.reduce((t, f) => t + (Number(f.dataset.billetes) || 0), 0);
+  const monto = filas.reduce((t, f) => t + (Number(f.dataset.monto) || 0), 0);
+  total.textContent =
+    `${filas.length} foto${filas.length === 1 ? '' : 's'} · ${billetes} billete${billetes === 1 ? '' : 's'} · ${dinero(monto)}`;
+}
+
+const historial = { cargadas: 0 };
+
+function filtrosHistorial() {
+  const p = new URLSearchParams({ limite: '30', offset: String(historial.cargadas) });
+  if ($('#h-desde').value) p.set('desde', $('#h-desde').value);
+  if ($('#h-hasta').value) p.set('hasta', $('#h-hasta').value);
+  if ($('#h-cajera').value) p.set('cajera_id', $('#h-cajera').value);
+  return p;
+}
+
+async function cargarHistorial({ mas = false } = {}) {
+  if (!mas) {
+    historial.cargadas = 0;
+    $('#lista-historial').innerHTML = '<div class="tarjeta"><p class="cargando">Cargando…</p></div>';
+    $('#h-mas').classList.add('oculto');
+  }
+
+  const { capturas, hay_mas } = await api('/api/capturas?' + filtrosHistorial());
+  historial.cargadas += capturas.length;
+
+  if (!mas && capturas.length === 0) {
+    $('#lista-historial').innerHTML =
+      '<div class="tarjeta"><p class="tenue">No hay fotos registradas en ese período.</p></div>';
+    return;
+  }
+
+  const dias = [...porDias(capturas)];
+
+  // Al pedir más, el primer día que llega suele continuar el último ya pintado:
+  // en ese caso sus fotos van a la tarjeta abierta, no a una cabecera repetida.
+  if (mas && dias.length) {
+    const ultimo = $$('#lista-historial .dia h3').pop();
+    if (ultimo?.dataset.clave === dias[0][0]) {
+      const [, delDia] = dias.shift();
+      $$('#lista-historial .tarjeta').pop()?.insertAdjacentHTML('beforeend', delDia.map(filaHistorial).join(''));
+      actualizarTotalDia(ultimo.closest('.dia'));
+    }
+  }
+
+  const html = dias.map(([clave, delDia]) => bloqueDia(clave, delDia)).join('');
+  if (mas) $('#lista-historial').insertAdjacentHTML('beforeend', html);
+  else $('#lista-historial').innerHTML = html;
+
+  $('#h-mas').classList.toggle('oculto', !hay_mas);
 }
 
 /**
@@ -437,6 +535,11 @@ function actualizarCabeceraFila(fila) {
     .filter(Boolean);
   const monto = billetes.reduce((t, b) => t + (b.denominacion || 0), 0);
   resumen.textContent = `${billetes.length} billete(s) · ${dinero(monto)}`;
+
+  // Las cifras viven en la fila para que el total del día se pueda recalcular.
+  fila.dataset.billetes = billetes.length;
+  fila.dataset.monto = monto;
+  actualizarTotalDia(fila.closest('.tarjeta')?.previousElementSibling);
 }
 
 /** Despliega (o cierra) los billetes de una captura dentro del historial. */
@@ -562,6 +665,12 @@ async function cargarCajeras() {
     ? cajeras.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')
     : '<option value="">— añade cajeras en Ajustes —</option>';
   if (yo?.cajera_id) $('#sel-cajera').value = yo.cajera_id;
+
+  const filtro = $('#h-cajera');
+  const elegida = filtro.value;
+  filtro.innerHTML = '<option value="">Todas</option>' +
+    cajeras.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+  filtro.value = elegida;
 }
 
 async function iniciar() {
@@ -620,6 +729,21 @@ $('#btn-reintentar').addEventListener('click', () => vaciarCola());
 
 $('#btn-buscar').addEventListener('click', buscar);
 $('#q').addEventListener('keydown', (e) => { if (e.key === 'Enter') buscar(); });
+
+for (const id of ['#h-desde', '#h-hasta', '#h-cajera']) {
+  $(id).addEventListener('change', () => cargarHistorial().catch((e) => avisar(e.message)));
+}
+$('#h-limpiar').addEventListener('click', () => {
+  $('#h-desde').value = $('#h-hasta').value = '';
+  $('#h-cajera').value = '';
+  cargarHistorial().catch((e) => avisar(e.message));
+});
+$('#h-mas').addEventListener('click', async () => {
+  const boton = $('#h-mas');
+  boton.disabled = true;
+  try { await cargarHistorial({ mas: true }); } catch (e) { avisar(e.message); }
+  boton.disabled = false;
+});
 
 $('#btn-reporte').addEventListener('click', () => cargarReporte().catch((e) => avisar(e.message)));
 $('#btn-csv').addEventListener('click', () => {

@@ -190,20 +190,45 @@ router.patch('/:id', requiereSesion, async (req, res, next) => {
   }
 });
 
-// --- Listado de capturas recientes ----------------------------------------
+// --- Listado de capturas, de la más reciente a la más antigua -------------
+// Admite filtrar por fechas y por cajera, y paginar con `offset`.
 router.get('/', requiereSesion, async (req, res, next) => {
   try {
     const limite = Math.min(Number(req.query.limite) || 30, 100);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+    const condiciones = [];
+    const valores = [];
+    const fecha = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null);
+
+    const desde = fecha(req.query.desde);
+    if (desde) { valores.push(desde); condiciones.push(`cap.recibida_en >= $${valores.length}::date`); }
+
+    const hasta = fecha(req.query.hasta);
+    if (hasta) { valores.push(hasta); condiciones.push(`cap.recibida_en < ($${valores.length}::date + 1)`); }
+
+    if (Number(req.query.cajera_id)) {
+      valores.push(Number(req.query.cajera_id));
+      condiciones.push(`cap.cajera_id = $${valores.length}`);
+    }
+    const donde = condiciones.length ? `WHERE ${condiciones.join(' AND ')}` : '';
+
+    // Se pide una de más para saber si quedan más páginas sin contarlas todas.
+    valores.push(limite + 1, offset);
     const filas = await consultar(
       `SELECT cap.id, cap.archivo, cap.miniatura, cap.estado, cap.nota, cap.recibida_en,
               c.nombre AS cajera,
               (SELECT COUNT(*)::int FROM billetes b WHERE b.captura_id = cap.id) AS n_billetes,
               (SELECT COALESCE(SUM(b.denominacion), 0)::int FROM billetes b WHERE b.captura_id = cap.id) AS monto
          FROM capturas cap JOIN cajeras c ON c.id = cap.cajera_id
-        ORDER BY cap.id DESC LIMIT $1`,
-      [limite]
+         ${donde}
+        ORDER BY cap.recibida_en DESC, cap.id DESC
+        LIMIT $${valores.length - 1} OFFSET $${valores.length}`,
+      valores
     );
-    res.json({ capturas: await conFotos(filas) });
+
+    const hayMas = filas.length > limite;
+    res.json({ capturas: await conFotos(filas.slice(0, limite)), hay_mas: hayMas });
   } catch (err) {
     next(err);
   }

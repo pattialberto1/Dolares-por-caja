@@ -164,6 +164,18 @@ button.enlace-tenue {
   font-size: .85rem; cursor: pointer; text-decoration: underline; padding: 0;
 }
 
+/* Cabecera de cada día en el historial. */
+.dia {
+  display: flex; align-items: baseline; gap: .5rem;
+  margin: 1.1rem 0 .4rem; padding-bottom: .3rem;
+  border-bottom: 2px solid var(--verde);
+}
+.dia:first-child { margin-top: 0; }
+.dia h3 { margin: 0; font-size: .95rem; }
+/* Solo la inicial: "capitalize" convertiría "15 de agosto" en "15 De Agosto". */
+.dia h3::first-letter { text-transform: uppercase; }
+.dia .total { margin-left: auto; font-size: .85rem; color: var(--tenue); white-space: nowrap; }
+
 /* Detalle de una captura desplegado dentro del historial. */
 .detalle-captura { padding: .2rem 0 .6rem; }
 
